@@ -39,6 +39,33 @@ def create_pv_profile(
 
     return pv_values
 
+
+"""Create a synthetic average-carbon-intensity profile """
+def create_carbon_profile(
+        timestamps: pd.DatetimeIndex,
+) -> list[float]:
+    carbon_intensity_values = []
+
+    for timestamp in timestamps:
+        hour = timestamp.hour + timestamp.minute / 60
+
+        if 0 <= hour < 6:
+            carbon_intensity = 320.0
+        elif 6 <= hour < 12:
+            carbon_intensity = 250.0
+        elif 12 <= hour < 17:
+            carbon_intensity = 120.0
+        elif 17 <= hour < 22:
+            carbon_intensity = 380.0
+        else:
+            carbon_intensity = 300.0
+
+        carbon_intensity_values.append(carbon_intensity)
+
+    return carbon_intensity_values 
+    
+
+
 def create_price_profile(
         timestamps: pd.DatetimeIndex,
 ) -> list[float]:
@@ -59,6 +86,7 @@ def create_price_profile(
         price_values.append(price_per_kwh)
 
     return price_values
+
 
 
 def create_load_profile(
@@ -99,18 +127,39 @@ def create_sample_dataframe(
     load_values = create_load_profile(timestamps)
     pv_values = create_pv_profile(timestamps)
     price_values = create_price_profile(timestamps)
+    carbon_intensity_values = create_carbon_profile(timestamps)
 
     data = pd.DataFrame({
         "timestamp": timestamps,
         "load_kw": load_values,
         "pv_kw": pv_values,
         "price_per_kWh": price_values,
+        "gCO2/kWh": carbon_intensity_values,
     })
 
     return data
 
+def validate_sample_data(data: pd.DataFrame) -> None:
 
+    required_columns = {
+        "timestamps",
+        "load_kw",
+        "pv_kw",
+        "price_per_kWh",
+        "gCO2/kWh",
+        }
+    
+    difference = required_columns - set(data.columns)
+    
+    if difference:
+        raise ValueError(
+            f"Missing DataFrame columns: {difference}"
+            )
 
+    if len(data) != 96:
+        raise ValueError(f"Expected 96 intervals, but received {len(data)}.")
+    
+        
 if __name__ == "__main__":
     data = create_sample_dataframe(
         date="2026-08-01",
@@ -126,5 +175,7 @@ if __name__ == "__main__":
     print(f"Maximum PV: {data['pv_kw'].max():.2f} kW") 
     print(f"Minimum price: ${data['price_per_kWh'].min():.2f}/kWh")
     print(f"Maximum price: ${data['price_per_kWh'].max():.2f}/kWh")
+    print(f"Minimum carbon intensity: ${data['gCO2/kWh'].min():.2f}/kWh")
+    print(f"Maximum carbon intensity: ${data['gCO2/kWh'].max():.2f}/kWh")
 
     
