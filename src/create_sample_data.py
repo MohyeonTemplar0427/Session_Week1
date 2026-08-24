@@ -1,4 +1,5 @@
 import pandas as pd
+import math
 
 def create_time_index(
         date: str,
@@ -16,6 +17,50 @@ def create_time_index(
 
     return timestamps
 
+
+def create_pv_profile(
+        timestamps: pd.DatetimeIndex,
+        maximum_pv_kw: float = 30.0,
+) -> list[float]:
+    """Create a simplified solar-PV profile"""
+
+    pv_values = []
+
+    for timestamp in timestamps:
+        hour = timestamp.hour + timestamp.minute / 60
+
+        if 6 <= hour < 18:
+            solar_fraction = math.sin(math.pi * (hour - 6) / 12)
+            pv_kw = maximum_pv_kw * solar_fraction
+        else:
+            pv_kw = 0.0
+
+        pv_values.append(max(pv_kw, 0.0))
+
+    return pv_values
+
+def create_price_profile(
+        timestamps: pd.DatetimeIndex,
+) -> list[float]:
+    price_values = []
+
+    for timestamp in timestamps:
+        hour = timestamp.hour + timestamp.minute / 60
+
+        if 0 <= hour < 6:
+            price_per_kwh = 0.12
+        elif 6 <= hour < 16:
+            price_per_kwh = 0.20
+        elif 16 <= hour < 21:
+            price_per_kwh = 0.38
+        else:
+            price_per_kwh = 0.16
+
+        price_values.append(price_per_kwh)
+
+    return price_values
+
+
 def create_load_profile(
         timestamps: pd.DatetimeIndex,
 ) -> list[float]:
@@ -26,7 +71,6 @@ def create_load_profile(
 
     for timestamp in timestamps:
         hour = timestamp.hour + timestamp.minute / 60
-
         if 0 <= hour < 6:
             load_kw = 15.0
         elif 6 <= hour < 12:
@@ -53,10 +97,14 @@ def create_sample_dataframe(
     )
 
     load_values = create_load_profile(timestamps)
+    pv_values = create_pv_profile(timestamps)
+    price_values = create_price_profile(timestamps)
 
     data = pd.DataFrame({
         "timestamp": timestamps,
         "load_kw": load_values,
+        "pv_kw": pv_values,
+        "price_per_kWh": price_values,
     })
 
     return data
@@ -68,11 +116,15 @@ if __name__ == "__main__":
         date="2026-08-01",
     )
 
-    print(data.head(10))
-    print(data.tail(10))
+    print(data.head(5))
+    print(data.tail(5))
 
     print(f"\nNumber of intervals: {len(data)}")
     print(f"Minimum load: {data['load_kw'].min():.2f} kW")
     print(f"Maximum load: {data['load_kw'].max():.2f} kW")
+    print(f"Minimum PV: {data['pv_kw'].min():.2f} kW")
+    print(f"Maximum PV: {data['pv_kw'].max():.2f} kW") 
+    print(f"Minimum price: ${data['price_per_kWh'].min():.2f}/kWh")
+    print(f"Maximum price: ${data['price_per_kWh'].max():.2f}/kWh")
 
     
