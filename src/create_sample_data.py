@@ -40,7 +40,7 @@ def create_pv_profile(
     return pv_values
 
 
-"""Create a synthetic average-carbon-intensity profile """
+#Create a synthetic average-carbon-intensity profile 
 def create_carbon_profile(
         timestamps: pd.DatetimeIndex,
 ) -> list[float]:
@@ -93,7 +93,7 @@ def create_load_profile(
         timestamps: pd.DatetimeIndex,
 ) -> list[float]:
 
-    """Create a simple daily electrical-load profile"""
+    #Create a simple daily electrical-load profile
 
     load_values = []
 
@@ -112,12 +112,12 @@ def create_load_profile(
 
     return load_values
 
-
+"""Create and validate a one-day microgrid time-series table."""
 def create_sample_dataframe(
     date: str,
     timezone: str = "America/Los_Angeles",
 ) -> pd.DataFrame:
-    """Create the initial one-day time-series table."""
+    #Create the initial one-day time-series table.
 
     timestamps = create_time_index(
         date=date,
@@ -129,6 +129,7 @@ def create_sample_dataframe(
     price_values = create_price_profile(timestamps)
     carbon_intensity_values = create_carbon_profile(timestamps)
 
+
     data = pd.DataFrame({
         "timestamp": timestamps,
         "load_kw": load_values,
@@ -137,12 +138,18 @@ def create_sample_dataframe(
         "gCO2/kWh": carbon_intensity_values,
     })
 
+    validate_sample_data(data)
+
+    data["net_load_kw"] = (
+        data["load_kw"] - data["pv_kw"]
+    )
+    
     return data
 
 def validate_sample_data(data: pd.DataFrame) -> None:
 
     required_columns = {
-        "timestamps",
+        "timestamp",
         "load_kw",
         "pv_kw",
         "price_per_kWh",
@@ -150,14 +157,61 @@ def validate_sample_data(data: pd.DataFrame) -> None:
         }
     
     difference = required_columns - set(data.columns)
-    
+
     if difference:
         raise ValueError(
             f"Missing DataFrame columns: {difference}"
             )
 
+    ## Check if we have 96 time intervals to fully cover a day
     if len(data) != 96:
         raise ValueError(f"Expected 96 intervals, but received {len(data)}.")
+    
+    ## Check if there is any missing entry in the DataFrame
+    if data.isna().any().any():
+        raise ValueError("There is one or more missing values in the DataFrame.")
+
+    ## Check if there is no overlap in time interval
+    if not data["timestamp"].is_unique:
+        raise ValueError("Not every timestamp is unique.")
+
+    ## Check if timestamp is increasing chronologically 
+    if not data["timestamp"].is_monotonic_increasing:
+        raise ValueError("Timestamps must increase chronologically.")
+
+    time_differences = data["timestamp"].diff()
+    time_differences = time_differences.dropna()
+
+    if not (time_differences == pd.Timedelta(minutes=15)).all():
+        raise ValueError(
+            "Time intervals must be 15 minutes"
+        )
+    # Check if each timestamp has timezone
+    if data["timestamp"].dt.tz is None:
+        raise ValueError(
+            "Timestamps must include timezone information"
+                         )
+
+    # Check if four numerical inputs don't have negative values.
+    numeric_columns = [
+        "load_kw",
+        "pv_kw",
+        "price_per_kWh",
+        "gCO2/kWh",
+    ]
+
+    if (data[numeric_columns] < 0).any().any():
+        raise ValueError(
+            "Numerical input values must be nonnegative."
+        )
+
+    # Calculate the net load
+
+    
+
+
+    
+    
     
         
 if __name__ == "__main__":
