@@ -159,19 +159,19 @@ def test_simulate_timestep_charging():
     assert battery.energy_kWh == pytest.approx(11.1875)
 
 
-    def test_simulate_timestep_export():
-        battery = Battery()
+def test_simulate_timestep_export():
+    battery = Battery()
 
-        result = simulate_timestep(
-            battery=battery,
-            load_kw=10.0,
-            pv_kw=20.0,
-            charge_kw=0.0,
-            discharge_kw=0.0,
-            dt_hours=0.25,
+    result = simulate_timestep(
+        battery=battery,
+        load_kw=10.0,
+        pv_kw=20.0,
+        charge_kw=0.0,
+        discharge_kw=0.0,
+        dt_hours=0.25,
     )
-        assert result["grid_import"] == pytest.approx(-10.0)
-        assert result["energy_kWh"] == pytest.approx(10.0)
+    assert result["grid_import"] == pytest.approx(-10.0)
+    assert result["energy_kWh"] == pytest.approx(10.0)
 
 
 def test_invalid_load_preserves_battery_state():
