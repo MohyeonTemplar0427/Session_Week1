@@ -16,6 +16,31 @@ def create_time_index(
 
     return timestamps
 
+def create_load_profile(
+        timestamps: pd.DatetimeIndex,
+) -> list[float]:
+
+    """Create a simple daily electrical-load profile"""
+
+    load_values = []
+
+    for timestamp in timestamps:
+        hour = timestamp.hour + timestamp.minute / 60
+
+        if 0 <= hour < 6:
+            load_kw = 15.0
+        elif 6<= hour < 12:
+            load_kw = 25.0
+        elif 12 <= hour < 17:
+            load_kw = 35.0
+        else:
+            load_kw = 20.0
+
+        load_values.append(load_kw)
+
+    return load_values
+
+
 def create_sample_dataframe(
     date: str,
     timezone: str = "America/Los_Angeles",
@@ -27,18 +52,27 @@ def create_sample_dataframe(
         timezone=timezone,
     )
 
+    load_values = create_load_profile(timestamps)
+
     data = pd.DataFrame({
         "timestamp": timestamps,
+        "load_kw": load_values,
     })
 
     return data
 
+
+
 if __name__ == "__main__":
-    data = create_sample_dataframe("2026-08-01",)
+    data = create_sample_dataframe(
+        date="2026-08-01",
+    )
 
     print(data.head())
     print(data.tail())
-    print(f"Number of intervals: {len(data)}")
 
+    print(f"\nNumber of intervals: {len(data)}")
+    print(f"Minimum load: {data['load_kw'].min():.2f} kW")
+    print(f"Maximum load: {data['load_kw'].max():.2f} kW")
 
     
