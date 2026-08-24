@@ -1,5 +1,6 @@
 import pandas as pd
 import math
+import matplotlib.pyplot as plt
 
 def create_time_index(
         date: str,
@@ -205,19 +206,74 @@ def validate_sample_data(data: pd.DataFrame) -> None:
             "Numerical input values must be nonnegative."
         )
 
-    # Calculate the net load
+#Plotting the input signals
 
+def plot_input_profiles(
+        data: pd.DataFrame
+    ) -> None:
+    figure, axes = plt.subplots(
+        4,
+        1,
+        sharex = True
+    )
+    axes[0].plot(
+        data["timestamp"],
+        data["load_kw"],
+    )
+
+    axes[1].plot(
+        data["timestamp"],
+        data["pv_kw"],
+    )
+
+    axes[2].plot(
+        data["timestamp"],
+        data["price_per_kWh"],
+    )
+    axes[3].plot(
+        data["timestamp"],
+        data["gCO2/kWh"],
+    )
+    axes[0].set_title("Electrical Load")
+    axes[0].set_ylabel("Load (kW)")
+
+    axes[1].set_title("Solar PV Generation")
+    axes[1].set_ylabel("PV (kW)")
+
+    axes[2].set_title("Electricity Price")
+    axes[2].set_ylabel("Price ($/kWh)")
+
+    axes[3].set_title("Grid Carbon Intensity")
+    axes[3].set_ylabel("gCO2/kWh")
+    axes[3].set_xlabel("Time")
+
+    figure.autofmt_xdate()
+    figure.tight_layout()
+    figure.savefig(
+        "results/input_profiles.png",
+        dpi = 300,
+    )
+    plt.show()
+    
     
 
-
-    
-    
-    
-        
 if __name__ == "__main__":
     data = create_sample_dataframe(
         date="2026-08-01",
     )
+
+    output_path = "data/sample_day.csv"
+    csv_data = data.to_csv(output_path, index=False)
+    print(f"Data saved to: {output_path}.")
+
+    new_data = pd.read_csv(
+        output_path, 
+        parse_dates = ["timestamp"],
+        )
+    validate_sample_data(new_data)
+
+    print(new_data.shape)
+    print(new_data.dtypes)
 
     print(data.head(5))
     print(data.tail(5))
@@ -231,5 +287,7 @@ if __name__ == "__main__":
     print(f"Maximum price: ${data['price_per_kWh'].max():.2f}/kWh")
     print(f"Minimum carbon intensity: ${data['gCO2/kWh'].min():.2f}/kWh")
     print(f"Maximum carbon intensity: ${data['gCO2/kWh'].max():.2f}/kWh")
+
+    plot_input_profiles(new_data)
 
     
