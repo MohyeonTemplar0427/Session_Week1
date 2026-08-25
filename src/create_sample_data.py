@@ -701,7 +701,159 @@ def run_rule_based_dispatch(
     print(f"max error: {data['power_balance_error_kw'].abs().max()}")
     return data
 
+#Combined optimization 
+def run_combined_optimization(
+        data: pd.DataFrame,
+        battery_parameters: dict[str, float],
+        carbon_weight: float
+)->pd.DataFrame:
 
+    number_of_steps = len(data)
+    timestep_hours = 0.25
+
+    initial_soc_kWh = battery_parameters["initial_soc_kWh"]
+    min_soc_kWh = battery_parameters["min_soc_kWh"]
+    max_soc_kWh = battery_parameters["max_soc_kWh"]
+
+    max_charge_kw = battery_parameters["max_charge_kw"]
+    max_discharge_kw = battery_parameters["max_discharge_kw"]
+
+    charge_efficiency = battery_parameters["charge_efficiency"]
+    discharge_efficiency = battery_parameters["discharge_efficiency"]
+
+    constraints = []
+
+    battery_charge_kw = cp.Variable(
+        number_of_steps,
+        nonneg=True,
+    )
+
+    battery_discharge_kw = cp.Variable(
+        number_of_steps,
+        nonneg=True,
+    )
+
+    grid_import_kw = cp.Variable(
+        number_of_steps,
+        nonneg=True,
+    )
+
+    grid_export_kw = cp.Variable(
+        number_of_steps,
+        nonneg=True,
+    )
+
+    #need one more soc states as soc is state variable
+    battery_soc_kWh = cp.Variable(
+        number_of_steps + 1
+    )
+    constraints.append(
+        battery_soc_kWh[0] == initial_soc_kWh
+    )
+
+    constraints.append(
+        battery_soc_kWh[-1] == initial_soc_kWh
+    )
+
+    constraints += [
+        battery_charge_kw <= max_charge_kw,
+        battery_discharge_kw <= max_discharge_kw,
+        battery_soc_kWh >= min_soc_kWh, 
+        battery_soc_kWh <= max_soc_kWh,
+    ]
+
+    for t in range(number_of_steps):
+        constraints.append(
+            battery_soc_kWh[t + 1]
+            ==
+            battery_soc_kWh[t]
+            + battery_charge_kw[t]
+            * timestep_hours
+            * charge_efficiency
+            - battery_discharge_kw[t]
+            * timestep_hours
+            / discharge_efficiency
+        )
+
+        constraints.append(
+            data["pv_kw"].iloc[t]
+            + grid_import_kw[t]
+            + battery_discharge_kw[t]
+            ==
+            data["load_kw"].iloc[t]
+            + battery_charge_kw[t]
+            + grid_export_kw[t]       
+        )
+
+    grid_import_cost = cp.sum(
+        cp.multiply(
+            grid_import_kw,
+            data["price_per_kWh"].to_numpy(),
+        )
+    ) * timestep_hours
+
+    grid_import_emission_kgCO2 = (
+        cp.sum(
+            cp.multiply(
+                grid_import_kw,
+                data["gCO2/kWh"].to_numpy(),
+            )
+        )
+        * timestep_hours 
+        / 1000
+    ) 
+
+    objective = cp.Minimize(
+        grid_import_cost
+        + carbon_weight
+        * grid_import_emission_kgCO2
+    )
+
+    problem = cp.Problem(
+        objective,
+        constraints,
+    )
+
+    problem.solve()
+
+    print("Combined optimization status:", problem.status)
+    print("Combined objective value:", problem.value)
+    print("SOC raw value:", battery_soc_kWh.value)
+
+    if problem.status not in ["optimal", "optimal_inaccurate"]:
+        raise ValueError(
+            f"Optimization failed with stats; {problem.status}"
+        )
+
+    soc_values = battery_soc_kWh.value
+
+    if soc_values is None:
+        raise ValueError(
+            "Optimizer did not return battery SOC values."
+        )
+    
+    data["battery_soc_kWh"] = soc_values[1:]
+    data["battery_charge_kw"] = battery_charge_kw.value
+    data["battery_discharge_kw"] = battery_discharge_kw.value
+    data["grid_import_kw"] = grid_import_kw.value
+    data["grid_export_kw"] = grid_export_kw.value
+
+    data["power_balance_error_kw"] = (
+        data["pv_kw"]
+        + data["battery_discharge_kw"]
+        + data["grid_import_kw"]
+        - data["load_kw"]
+        - data["battery_charge_kw"]
+        - data["grid_export_kw"]
+    )
+
+    return data
+
+
+
+
+
+#Plotting Results
 def plot_dispatch_results(
         data: pd.DataFrame,
 )-> None:
@@ -756,11 +908,6 @@ def plot_dispatch_results(
 
     plt.show()
 
-
-
-
-
-
 #Plotting the input signals
 def plot_input_profiles(
         data: pd.DataFrame
@@ -810,6 +957,65 @@ def plot_input_profiles(
     )
     plt.show()
 
+def plot_cost_emissions_tradeoff(
+    results: pd.DataFrame,
+) -> None:
+
+    plt.figure()
+
+    plt.plot(
+        results["emissions_kgCO2"],
+        results["cost"],
+        marker="o",
+    )
+
+    label_offsets = {
+        0.00: (8, 5),
+        0.02: (8, 5),
+        0.05: (8, 18),
+        0.10: (8, 31),
+        0.20: (8, 5),
+    }
+
+    for _, row in results.iterrows():
+
+        carbon_weight = row[
+            "carbon_weight_$_per_kgCO2"
+        ]
+
+        offset = label_offsets.get(
+            carbon_weight,
+            (5, 5),
+        )
+
+        plt.annotate(
+            f"{carbon_weight:.2f}",
+            (
+                row["emissions_kgCO2"],
+                row["cost"],
+            ),
+            xytext=offset,
+            textcoords="offset points",
+        )
+
+    plt.xlabel(
+        "Emissions (kgCO2)"
+    )
+
+    plt.ylabel(
+        "Cost ($)"
+    )
+
+    plt.title(
+        "Cost–Emissions Tradeoff"
+    )
+
+    plt.grid(True)
+    plt.savefig("data/cost_emissions_tradeoff.png",
+                dpi = 300,
+                bbox_inches="tight"
+    )
+    plt.show()
 
 def calculate_dispatch_metrics(
     data: pd.DataFrame,
@@ -868,8 +1074,40 @@ if __name__ == "__main__":
         data.copy(),
         battery_parameters,
     )
+    carbon_weights = [0.0, 0.02, 0.05, 0.10, 0.20]
+    combined_results = []
 
-    #metrics
+    for carbon_weight in carbon_weights:
+
+        combined_data = run_combined_optimization(
+            data.copy(),
+            battery_parameters,
+            carbon_weight,
+        )
+
+        combined_metrics = calculate_dispatch_metrics(
+            combined_data
+        )
+
+        combined_results.append(
+            {
+                "carbon_weight_$_per_kgCO2": carbon_weight,
+                "grid_import_kWh": combined_metrics["grid_import_kWh"],
+                "cost": combined_metrics["cost"],
+                "emissions_kgCO2": combined_metrics["emissions_kgCO2"]
+            }
+        )
+    combined_result_df = pd.DataFrame(
+        combined_results
+    )
+    print(combined_result_df)
+    plot_cost_emissions_tradeoff(
+        combined_result_df
+    )
+
+
+    #metrics---------------------------------------------------------------
+
     optimized_metrics = calculate_dispatch_metrics(
         optimized_data
     )
@@ -885,6 +1123,7 @@ if __name__ == "__main__":
     carbon_optimized_metrics = calculate_dispatch_metrics(
         carbon_optimized_data
     )
+    #-----------------------------------------------------------------------#
 
 
 #rows
