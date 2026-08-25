@@ -206,14 +206,187 @@ def validate_sample_data(data: pd.DataFrame) -> None:
             "Numerical input values must be nonnegative."
         )
 
-#Plotting the input signals
+# This function returns data table updated with updated grid parameter histories
+def run_rule_based_dispatch(
+        data: pd.DataFrame,
+) -> pd.DataFrame:
 
+    timestep_hours = 0.25
+    discharge_price_threshold = 0.30
+    
+    battery_capacity_kWh = 20.0
+    battery_soc_kWh = 10.0
+
+    min_soc_kWh = 2.0
+    max_soc_kWh = 18.0
+
+    max_charge_kw = 5.0
+    max_discharge_kw = 5.0
+
+    charge_efficiency = 0.95
+    discharge_efficiency = 0.95
+
+    battery_soc_history = []
+    battery_charge_history = []
+    battery_discharge_history = []
+    grid_import_history = []
+    grid_export_history = []
+
+    for index, row in data.iterrows():
+        net_load_kw = row["net_load_kw"]
+        price_per_kWh = row["price_per_kWh"]
+
+        battery_charge_kw = 0.0
+        battery_discharge_kw = 0.0
+        grid_import_kw = 0.0
+        grid_export_kw = 0.0
+
+        if net_load_kw > 0:
+            deficit_kw = net_load_kw
+
+            available_energy_kWh = (
+                battery_soc_kWh - min_soc_kWh
+            )
+
+            soc_limited_discharge_kw = (
+                available_energy_kWh * discharge_efficiency / timestep_hours
+            )
+
+            battery_discharge_kw = min(
+                deficit_kw,
+                max_discharge_kw,
+                soc_limited_discharge_kw,
+            )
+
+            battery_soc_kWh -= (
+                battery_discharge_kw
+                * timestep_hours
+                / discharge_efficiency
+            )
+
+            grid_import_kw = (
+                deficit_kw - battery_discharge_kw
+            )
+
+        elif net_load_kw < 0:
+            excess_pv_kw = abs(net_load_kw)
+
+            available_storage_kWh = (
+                max_soc_kWh - battery_soc_kWh
+            )
+
+            soc_limited_charge_kw = (
+                available_storage_kWh
+                / charge_efficiency
+                / timestep_hours
+            )
+
+            battery_charge_kw = min(
+                excess_pv_kw,
+                max_charge_kw,
+                soc_limited_charge_kw
+            )
+
+            battery_soc_kWh += (
+                battery_charge_kw
+                * timestep_hours
+                * charge_efficiency
+            )
+
+            grid_export_kw = (
+                excess_pv_kw - battery_charge_kw
+            )
+
+        battery_soc_history.append(battery_soc_kWh)
+        battery_charge_history.append(battery_charge_kw)
+        battery_discharge_history.append(battery_discharge_kw)
+        grid_import_history.append(grid_import_kw)
+        grid_export_history.append(grid_export_kw)
+
+    data["battery_soc_kWh"] = battery_soc_history
+    data["battery_charge_kw"] = battery_charge_history
+    data["battery_discharge_kw"] = battery_discharge_history
+    data["grid_import_kw"] = grid_import_history
+    data["grid_export_kw"] = grid_export_history
+    data["power_balance_error_kw"] = (
+        data["pv_kw"]
+        + data["battery_discharge_kw"]
+        + data["grid_import_kw"]
+        - data["load_kw"]
+        - data["battery_charge_kw"]
+        - data["grid_export_kw"]
+    )
+    print(f"max error: {data["power_balance_error_kw"].abs().max()}")
+    return data
+
+
+def plot_dispatch_results(
+        data: pd.DataFrame,
+)-> None:
+    figure, axes = plt.subplots(
+        3,
+        1,
+        figsize = (10, 8),
+        sharex=True,
+    )
+
+    axes[0].plot(
+        data["timestamp"],
+        data["battery_soc_kWh"],
+    )
+
+    axes[0].set_title("Battery State of Charge")
+    axes[0].set_ylabel("Energy (kWh)")
+
+    axes[1].plot(
+        data["timestamp"],
+        data["battery_discharge_kw"],
+        label="Discharge"
+    )
+    axes[1].plot(
+            data["timestamp"],
+            data["battery_charge_kw"],
+            label="Charge"
+        )    
+
+    axes[1].set_title("Battery Power")
+    axes[1].set_ylabel("Power (kW)")
+    axes[1].legend()
+
+    axes[2].plot(
+        data["timestamp"],
+        data["grid_import_kw"],
+        label="Import",
+    )
+    axes[2].plot(
+        data["timestamp"],
+        data["grid_export_kw"],
+        label="Export",
+    )
+
+    axes[2].set_title("Grid Exchange")
+    axes[2].set_ylabel("Power (kW)")
+    axes[2].set_xlabel("Time")
+    axes[2].legend()
+
+    figure.autofmt_xdate()
+    figure.tight_layout()
+
+    plt.show()
+
+
+
+
+
+
+#Plotting the input signals
 def plot_input_profiles(
         data: pd.DataFrame
     ) -> None:
     figure, axes = plt.subplots(
         4,
         1,
+        figsize=(9,7.5),
         sharex = True
     )
     axes[0].plot(
@@ -288,6 +461,8 @@ if __name__ == "__main__":
     print(f"Minimum carbon intensity: ${data['gCO2/kWh'].min():.2f}/kWh")
     print(f"Maximum carbon intensity: ${data['gCO2/kWh'].max():.2f}/kWh")
 
-    plot_input_profiles(new_data)
+    ##plot_input_profiles(new_data)
+    data = run_rule_based_dispatch(data)
+    plot_dispatch_results(data)
 
     
