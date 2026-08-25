@@ -2,6 +2,7 @@ import pandas as pd
 import math
 import matplotlib.pyplot as plt
 import cvxpy as cp
+from typing import cast
 
 
 
@@ -235,10 +236,10 @@ battery_parameters = {
 # grid_import_kw
 # grid_export_kw
 
-def run_cost_optimization(
+def run_carbon_optimization(
         data: pd.DataFrame,
         battery_parameters: dict[str, float],
-): #->pd.DataFrame:
+)->pd.DataFrame:
 
     number_of_steps = len(data)
     timestep_hours = 0.25
@@ -282,6 +283,160 @@ def run_cost_optimization(
     constraints.append(
         battery_soc_kWh[0] == initial_soc_kWh
     )
+
+    constraints.append(
+        battery_soc_kWh[-1] == initial_soc_kWh
+    )
+
+    constraints += [
+        battery_charge_kw <= max_charge_kw,
+        battery_discharge_kw <= max_discharge_kw,
+        battery_soc_kWh >= min_soc_kWh, 
+        battery_soc_kWh <= max_soc_kWh,
+    ]
+
+    for t in range(number_of_steps):
+        constraints.append(
+            battery_soc_kWh[t + 1]
+            ==
+            battery_soc_kWh[t]
+            + battery_charge_kw[t]
+            * timestep_hours
+            * charge_efficiency
+            - battery_discharge_kw[t]
+            * timestep_hours
+            / discharge_efficiency
+        )
+
+        constraints.append(
+            data["pv_kw"].iloc[t]
+            + grid_import_kw[t]
+            + battery_discharge_kw[t]
+            ==
+            data["load_kw"].iloc[t]
+            + battery_charge_kw[t]
+            + grid_export_kw[t]       
+        )
+
+    grid_import_emissions = cp.sum(
+        cp.multiply(
+            grid_import_kw,
+            data["gCO2/kWh"].to_numpy(),
+        )
+    ) * timestep_hours
+
+    objective = cp.Minimize(
+        grid_import_emissions
+    )
+
+    problem = cp.Problem(
+        objective,
+        constraints,
+    )
+
+    problem.solve()
+
+    print("Carbon optimization status:", problem.status)
+
+    if problem.status not in ["optimal", "optimal_inaccurate"]:
+            raise ValueError(
+                f"Optimization failed with stats; {problem.status}"
+            )
+    objective_value = problem.value
+
+    if objective_value is None:
+        raise ValueError(
+            "Carbon optimization did not return an objective value."
+        )
+    
+    objective_value = float(cast(float, objective_value))
+
+    print("Carbon objective:", objective_value / 1000, "kgCO2")
+    print("SOC raw value:", battery_soc_kWh.value)
+
+    if problem.status not in ["optimal", "optimal_inaccurate"]:
+        raise ValueError(
+            f"Optimization failed with stats; {problem.status}"
+        )
+
+    soc_values = battery_soc_kWh.value
+
+    if soc_values is None:
+        raise ValueError(
+            "Optimizer did not return battery SOC values."
+        )
+    
+    data["battery_soc_kWh"] = soc_values[1:]
+    data["battery_charge_kw"] = battery_charge_kw.value
+    data["battery_discharge_kw"] = battery_discharge_kw.value
+    data["grid_import_kw"] = grid_import_kw.value
+    data["grid_export_kw"] = grid_export_kw.value
+
+    data["power_balance_error_kw"] = (
+        data["pv_kw"]
+        + data["battery_discharge_kw"]
+        + data["grid_import_kw"]
+        - data["load_kw"]
+        - data["battery_charge_kw"]
+        - data["grid_export_kw"]
+    )
+
+    return data
+
+
+
+def run_cost_optimization(
+        data: pd.DataFrame,
+        battery_parameters: dict[str, float],
+)->pd.DataFrame:
+
+    number_of_steps = len(data)
+    timestep_hours = 0.25
+
+    initial_soc_kWh = battery_parameters["initial_soc_kWh"]
+    min_soc_kWh = battery_parameters["min_soc_kWh"]
+    max_soc_kWh = battery_parameters["max_soc_kWh"]
+
+    max_charge_kw = battery_parameters["max_charge_kw"]
+    max_discharge_kw = battery_parameters["max_discharge_kw"]
+
+    charge_efficiency = battery_parameters["charge_efficiency"]
+    discharge_efficiency = battery_parameters["discharge_efficiency"]
+
+    constraints = []
+
+    battery_charge_kw = cp.Variable(
+        number_of_steps,
+        nonneg=True,
+    )
+
+    battery_discharge_kw = cp.Variable(
+        number_of_steps,
+        nonneg=True,
+    )
+
+    grid_import_kw = cp.Variable(
+        number_of_steps,
+        nonneg=True,
+    )
+
+    grid_export_kw = cp.Variable(
+        number_of_steps,
+        nonneg=True,
+    )
+
+    #need one more soc states as soc is state variable
+    battery_soc_kWh = cp.Variable(
+        number_of_steps + 1
+    )
+    constraints.append(
+        battery_soc_kWh[0] == initial_soc_kWh
+    )
+
+    constraints.append(
+        battery_soc_kWh[-1] == initial_soc_kWh
+    )
+
     constraints += [
         battery_charge_kw <= max_charge_kw,
         battery_discharge_kw <= max_discharge_kw,
@@ -384,6 +539,9 @@ def run_rule_based_dispatch(
     battery_capacity_kWh = battery_parameters["capacity_kWh"]
     battery_soc_kWh = battery_parameters["initial_soc_kWh"]
 
+    target_final_soc_kWh = battery_parameters["initial_soc_kWh"]
+    recovery_start_hour = 21
+
     min_soc_kWh = battery_parameters["min_soc_kWh"]
     max_soc_kWh = battery_parameters["max_soc_kWh"]
 
@@ -459,7 +617,6 @@ def run_rule_based_dispatch(
             available_storage_kWh = (
                 max_soc_kWh - battery_soc_kWh
             )
-
             soc_limited_charge_kw = (
                 available_storage_kWh
                 / charge_efficiency
@@ -481,6 +638,36 @@ def run_rule_based_dispatch(
             grid_export_kw = (
                 excess_pv_kw - battery_charge_kw
             )
+
+        hour = row["timestamp"].hour
+
+        if (
+            strategy == "price"
+            and hour >= recovery_start_hour
+            and battery_soc_kWh < target_final_soc_kWh
+        ):
+            needed_storage_kWh = (
+                target_final_soc_kWh - battery_soc_kWh
+            )
+
+            soc_limited_charge_kw = (
+                needed_storage_kWh
+                / charge_efficiency
+                / timestep_hours
+            )
+
+            battery_charge_kw = min(
+                max_charge_kw,
+                soc_limited_charge_kw,
+            )
+
+            battery_soc_kWh += (
+                battery_charge_kw
+                * timestep_hours
+                * charge_efficiency
+            )
+
+            grid_import_kw += battery_charge_kw
 
         battery_soc_history.append(battery_soc_kWh)
         battery_charge_history.append(battery_charge_kw)
@@ -677,6 +864,12 @@ if __name__ == "__main__":
         strategy="carbon",
     )
 
+    carbon_optimized_data = run_carbon_optimization(
+        data.copy(),
+        battery_parameters,
+    )
+
+    #metrics
     optimized_metrics = calculate_dispatch_metrics(
         optimized_data
     )
@@ -689,6 +882,12 @@ if __name__ == "__main__":
         carbon_data
     )
 
+    carbon_optimized_metrics = calculate_dispatch_metrics(
+        carbon_optimized_data
+    )
+
+
+#rows
     charging_rows = optimized_data[
         optimized_data["battery_charge_kw"] > 0.1
     ]
@@ -697,9 +896,18 @@ if __name__ == "__main__":
         optimized_data["battery_discharge_kw"] > 0.1
     ]
 
+    carbon_charging_rows = carbon_optimized_data[
+        carbon_optimized_data["battery_charge_kw"] > 0.1
+    ]
+
+    carbon_discharging_rows = carbon_optimized_data[
+        carbon_optimized_data["battery_discharge_kw"] > 0.1
+    ]
+
     print("Optimized:", optimized_metrics)
     print("Price-aware:", price_metrics)
     print("Carbon-aware:", carbon_metrics)
+    print("Carbon optimized:", carbon_optimized_metrics)
 
     print(
     charging_rows[
@@ -724,6 +932,43 @@ if __name__ == "__main__":
         ]
         ]
     )
+
+    print(
+        "Price-aware final SOC:",
+        price_data["battery_soc_kWh"].iloc[-1]
+    )
+
+    print(
+        "Optimized final SOC:",
+        optimized_data["battery_soc_kWh"].iloc[-1]
+    )
+    print(
+        carbon_charging_rows[
+        [
+            "timestamp",
+            "gCO2/kWh",
+            "battery_charge_kw",
+            "battery_soc_kWh",
+            "grid_import_kw",
+        ]
+        ]
+    )
+
+    print(
+        carbon_discharging_rows[
+        [
+            "timestamp",
+            "gCO2/kWh",
+            "battery_discharge_kw",
+            "battery_soc_kWh",
+            "grid_import_kw",
+        ]
+        ]
+    )
+    
+
+    print("Optimized:", optimized_metrics)
+    print("Price-aware:", price_metrics)    
 
 
 
