@@ -1,6 +1,10 @@
 import pandas as pd
 import math
 import matplotlib.pyplot as plt
+import cvxpy as cp
+
+
+
 
 def create_time_index(
         date: str,
@@ -206,9 +210,70 @@ def validate_sample_data(data: pd.DataFrame) -> None:
             "Numerical input values must be nonnegative."
         )
 
+battery_parameters = {
+    "capacity_kWh": 20.0,
+    "initial_soc_kWh": 10.0,
+    "min_soc_kWh": 2.0,
+    "max_soc_kWh": 18.0,
+    "max_charge_kw": 5.0,
+    "max_discharge_kw": 5.0,
+    "charge_efficiency": 0.95,
+    "discharge_efficiency": 0.95
+}
+
+# System parameters:
+# battery capacity, SOC limits, power limits, efficiencies
+
+# State variable:
+# battery_soc_kWh
+
+# Decision variables:
+# battery_charge_kw
+# battery_discharge_kw
+
+# Resulting grid variables:
+# grid_import_kw
+# grid_export_kw
+
+def run_cost_optimization(
+        data: pd.DataFrame,
+        battery_parameters: dict[str, float],
+) -> pd.DataFrame:
+
+    number_of_steps = len(data)
+    timestep_hours = 0.25
+
+    battery_charge_kw = cp.Variable(
+        number_of_steps,
+        nonneg=True,
+    )
+
+    battery_discharge_kw = cp.Variable(
+        number_of_steps,
+        nonneg=True,
+    )
+
+    grid_import_kw = cp.Variable(
+        number_of_steps,
+        nonneg=True,
+    )
+
+    grid_export_kw = cp.Variable(
+        number_of_steps,
+        nonneg=True,
+    )
+
+    #need one more soc states as soc is state variable
+    battery_soc_kWh = cp.Variable(
+        number_of_steps + 1
+    )
+
+
+
 # This function returns data table updated with updated grid parameter histories
 def run_rule_based_dispatch(
         data: pd.DataFrame,
+        battery_parameters: dict[str, float],
         strategy: str = "price",
 ) -> pd.DataFrame:
 
@@ -217,18 +282,20 @@ def run_rule_based_dispatch(
     discharge_price_threshold = 0.30
     discharge_carbon_threshold = 350.0
 
-    battery_capacity_kWh = 20.0
-    battery_soc_kWh = 10.0
+    ##System Parameters
+    battery_capacity_kWh = battery_parameters["capacity_kWh"]
+    battery_soc_kWh = battery_parameters["initial_soc_kWh"]
 
-    min_soc_kWh = 2.0
-    max_soc_kWh = 18.0
+    min_soc_kWh = battery_parameters["min_soc_kWh"]
+    max_soc_kWh = battery_parameters["max_soc_kWh"]
 
-    max_charge_kw = 5.0
-    max_discharge_kw = 5.0
+    max_charge_kw = battery_parameters["max_charge_kw"]
+    max_discharge_kw = battery_parameters["max_discharge_kw"]
 
-    charge_efficiency = 0.95
-    discharge_efficiency = 0.95
+    charge_efficiency = battery_parameters["charge_efficiency"]
+    discharge_efficiency = battery_parameters["discharge efficiency"]
 
+    ##Data log
     battery_soc_history = []
     battery_charge_history = []
     battery_discharge_history = []
@@ -524,11 +591,13 @@ if __name__ == "__main__":
     ##plot_input_profiles(new_data)
     price_data = run_rule_based_dispatch(
         data.copy(),
+        battery_parameters,
         strategy="price",
     ) 
     
     carbon_data = run_rule_based_dispatch(
         data.copy(),
+        battery_parameters
         strategy="carbon",
     )
 
