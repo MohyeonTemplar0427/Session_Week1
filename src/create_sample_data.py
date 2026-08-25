@@ -209,11 +209,14 @@ def validate_sample_data(data: pd.DataFrame) -> None:
 # This function returns data table updated with updated grid parameter histories
 def run_rule_based_dispatch(
         data: pd.DataFrame,
+        strategy: str = "price",
 ) -> pd.DataFrame:
 
     timestep_hours = 0.25
+
     discharge_price_threshold = 0.30
-    
+    discharge_carbon_threshold = 350.0
+
     battery_capacity_kWh = 20.0
     battery_soc_kWh = 10.0
 
@@ -235,13 +238,27 @@ def run_rule_based_dispatch(
     for index, row in data.iterrows():
         net_load_kw = row["net_load_kw"]
         price_per_kWh = row["price_per_kWh"]
+        carbon_intensity = row["gCO2/kWh"]
 
         battery_charge_kw = 0.0
         battery_discharge_kw = 0.0
         grid_import_kw = 0.0
         grid_export_kw = 0.0
 
-        if net_load_kw > 0:
+        if strategy == "price":
+            discharge_allowed = (
+                price_per_kWh >= discharge_price_threshold
+            )
+        elif strategy == "carbon":
+            discharge_allowed = (
+                carbon_intensity >= discharge_carbon_threshold
+            )
+        else:
+            raise ValueError(
+                f"Unknown dispatch strategy: {strategy}"
+            )
+
+        if net_load_kw > 0 and discharge_allowed:
             deficit_kw = net_load_kw
 
             available_energy_kWh = (
@@ -267,6 +284,9 @@ def run_rule_based_dispatch(
             grid_import_kw = (
                 deficit_kw - battery_discharge_kw
             )
+
+        elif net_load_kw > 0:
+            grid_import_kw = net_load_kw
 
         elif net_load_kw < 0:
             excess_pv_kw = abs(net_load_kw)
@@ -316,7 +336,17 @@ def run_rule_based_dispatch(
         - data["battery_charge_kw"]
         - data["grid_export_kw"]
     )
-    print(f"max error: {data["power_balance_error_kw"].abs().max()}")
+    data["grid_import_energy_kWh"] = (
+        data["grid_import_kw"] 
+        * timestep_hours
+        )
+
+    data["grid_import_cost"] = (
+        data["grid_import_energy_kWh"]
+        * data["price_per_kWh"]
+    )
+
+    print(f"max error: {data['power_balance_error_kw'].abs().max()}")
     return data
 
 
@@ -427,10 +457,40 @@ def plot_input_profiles(
         dpi = 300,
     )
     plt.show()
-    
+
+
+def calculate_dispatch_metrics(
+    data: pd.DataFrame,
+    timestep_hours: float = 0.25,
+) -> dict[str, float]:
+
+    grid_import_energy_kWh = (
+        data["grid_import_kw"] * timestep_hours
+    )
+
+    total_grid_import_kWh = (
+        grid_import_energy_kWh.sum()
+    )
+
+    total_cost = (
+        grid_import_energy_kWh
+        * data["price_per_kWh"]
+    ).sum()
+
+    total_emissions_kgCO2 = (
+        grid_import_energy_kWh
+        * data["gCO2/kWh"]
+    ).sum() / 1000
+
+    return {
+        "grid_import_kWh": float(total_grid_import_kWh),
+        "cost": float(total_cost),
+        "emissions_kgCO2": float(total_emissions_kgCO2),
+    }    
     
 
 if __name__ == "__main__":
+    timestep_hours = 0.25
     data = create_sample_dataframe(
         date="2026-08-01",
     )
@@ -462,7 +522,30 @@ if __name__ == "__main__":
     print(f"Maximum carbon intensity: ${data['gCO2/kWh'].max():.2f}/kWh")
 
     ##plot_input_profiles(new_data)
-    data = run_rule_based_dispatch(data)
-    plot_dispatch_results(data)
+    price_data = run_rule_based_dispatch(
+        data.copy(),
+        strategy="price",
+    ) 
+    
+    carbon_data = run_rule_based_dispatch(
+        data.copy(),
+        strategy="carbon",
+    )
+
+    price_metrics = calculate_dispatch_metrics(
+        price_data
+    )
+
+    carbon_metrics = calculate_dispatch_metrics(
+        carbon_data
+    )
+
+    print("Price-aware:", price_metrics)
+    print("Carbon-aware:", carbon_metrics)
+
+
+
+
+        
 
     
