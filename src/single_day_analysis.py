@@ -991,8 +991,8 @@ def plot_degradation_sensitivity(
         dpi=300,
         bbox_inches="tight"
         )
-
-    plt.show()
+    print("\nPlot will not be shown as .show() is commented out")
+    #plt.show()
 
 
 
@@ -1044,7 +1044,8 @@ def plot_input_profiles(
         "results/input_profiles.png",
         dpi = 300,
     )
-    plt.show()
+    print("\n Plot will be shown as it's commented")
+    #plt.show()
 
 def plot_cost_emissions_tradeoff(
     results: pd.DataFrame,
@@ -1104,7 +1105,8 @@ def plot_cost_emissions_tradeoff(
                 dpi = 300,
                 bbox_inches="tight"
     )
-    plt.show()
+    print("\n Plot will not be shown as .show() is commented.")
+    #plt.show()
 
 def calculate_dispatch_metrics(
     data: pd.DataFrame,
@@ -1324,6 +1326,31 @@ if __name__ == "__main__":
         print(
             "No meaningful simultaneous grid import/export found."
         )
+
+    initial_soc_kWh = battery_parameters["initial_soc_kWh"]
+
+    final_soc_kWh = combined_data_with_degradation[
+        "battery_soc_kWh"
+    ].iloc[-1]
+
+    terminal_soc_error_kWh = abs(
+        final_soc_kWh - initial_soc_kWh
+    )
+
+    print(
+        "\nInitial SOC:",
+        initial_soc_kWh,
+    )
+
+    print(
+        "Final SOC:",
+        final_soc_kWh,
+    )
+
+    print(
+        "Termianl SOC error:",
+        terminal_soc_error_kWh,
+    )
 
     plot_degradation_sensitivity(
         degradation_results_df
