@@ -336,7 +336,7 @@ def run_carbon_optimization(
 
     problem.solve()
 
-    print("Carbon optimization status:", problem.status)
+    #print("Carbon optimization status:", problem.status)
 
     if problem.status not in ["optimal", "optimal_inaccurate"]:
             raise ValueError(
@@ -351,8 +351,8 @@ def run_carbon_optimization(
     
     objective_value = float(cast(float, objective_value))
 
-    print("Carbon objective:", objective_value / 1000, "kgCO2")
-    print("SOC raw value:", battery_soc_kWh.value)
+    #print("Carbon objective:", objective_value / 1000, "kgCO2")
+    #print("SOC raw value:", battery_soc_kWh.value)
 
     if problem.status not in ["optimal", "optimal_inaccurate"]:
         raise ValueError(
@@ -487,9 +487,9 @@ def run_cost_optimization(
 
     problem.solve()
 
-    print("Problem status:", problem.status)
-    print("Objective value:", problem.value)
-    print("SOC raw value:", battery_soc_kWh.value)
+    #print("Problem status:", problem.status)
+    #print("Objective value:", problem.value)
+    #print("SOC raw value:", battery_soc_kWh.value)
 
     if problem.status not in ["optimal", "optimal_inaccurate"]:
         raise ValueError(
@@ -701,11 +701,12 @@ def run_rule_based_dispatch(
     print(f"max error: {data['power_balance_error_kw'].abs().max()}")
     return data
 
-#Combined optimization 
+#Combined optimization considring the degradation cost per kWh and carbon weight of electriciy
 def run_combined_optimization(
         data: pd.DataFrame,
         battery_parameters: dict[str, float],
-        carbon_weight: float
+        carbon_weight: float,
+        degradation_cost_per_kWh: float,
 )->pd.DataFrame:
 
     number_of_steps = len(data)
@@ -747,6 +748,8 @@ def run_combined_optimization(
     battery_soc_kWh = cp.Variable(
         number_of_steps + 1
     )
+
+
     constraints.append(
         battery_soc_kWh[0] == initial_soc_kWh
     )
@@ -803,10 +806,21 @@ def run_combined_optimization(
         / 1000
     ) 
 
+    battery_throughput_kWh = (
+        cp.sum(battery_charge_kw)
+        + cp.sum(battery_discharge_kw)
+    ) * timestep_hours
+
+    battery_degradation_cost = (
+        degradation_cost_per_kWh
+        * battery_throughput_kWh
+    )
+
     objective = cp.Minimize(
         grid_import_cost
         + carbon_weight
         * grid_import_emission_kgCO2
+        + battery_degradation_cost
     )
 
     problem = cp.Problem(
@@ -816,9 +830,9 @@ def run_combined_optimization(
 
     problem.solve()
 
-    print("Combined optimization status:", problem.status)
-    print("Combined objective value:", problem.value)
-    print("SOC raw value:", battery_soc_kWh.value)
+    #print("Combined optimization status:", problem.status)
+    #print("Combined objective score:", problem.value)
+    #print("SOC raw value:", battery_soc_kWh.value)
 
     if problem.status not in ["optimal", "optimal_inaccurate"]:
         raise ValueError(
@@ -850,10 +864,48 @@ def run_combined_optimization(
     return data
 
 
+def calculate_battery_usage_metrics(
+        data: pd.DataFrame,
+        battery_parameters: dict[str, float],
+        timestep_hours: float = 0.25,
+) -> dict[str, float]:
+
+    total_charge_kWh = (
+        data["battery_charge_kw"]
+        * timestep_hours
+    ).sum()
+
+    total_discharge_kWh = (
+        data["battery_discharge_kw"]
+        * timestep_hours
+    ).sum()
+
+    total_throughput_kWh = (
+        total_charge_kWh
+        + total_discharge_kWh
+    )
+
+    usable_capacity_kWh = (
+        battery_parameters["max_soc_kWh"]
+        - battery_parameters["min_soc_kWh"]
+    )
+
+    equivalent_full_cycles = (
+        total_throughput_kWh
+        / (2 * usable_capacity_kWh)
+    )
+
+    return {
+        "charge_kWh": float(total_charge_kWh),
+        "discharge_kWh": float(total_discharge_kWh),
+        "throughput_kWh": float(total_throughput_kWh),
+        "equivalent_full_cycles": float(
+            equivalent_full_cycles
+        ),
+    }
 
 
-
-#Plotting Results
+#Plotting Results----------------------------------------------------------------------- 
 def plot_dispatch_results(
         data: pd.DataFrame,
 )-> None:
@@ -908,7 +960,44 @@ def plot_dispatch_results(
 
     plt.show()
 
-#Plotting the input signals
+def plot_degradation_sensitivity(
+        results: pd.DataFrame,
+)-> None:
+
+    plt.figure()
+
+    plt.plot(
+        results["degradation_cost_per_kWh"],
+        results["equivalent_full_cycles"],
+        marker="o",
+    )
+
+    plt.xlabel(
+        "Degradation Cost ($/kWh throughput)"
+    )
+
+    plt.ylabel(
+        "Equivalent Full Cycles"
+    )
+
+    plt.title(
+        "Battery Cycling vs Degradation Cost"
+    )
+
+    plt.grid(True)
+
+    plt.savefig(
+        "data/degradation_sensitivity.png",
+        dpi=300,
+        bbox_inches="tight"
+        )
+
+    plt.show()
+
+
+
+
+#Plotting the input signals-------------------------------------------------------------
 def plot_input_profiles(
         data: pd.DataFrame
     ) -> None:
@@ -977,7 +1066,7 @@ def plot_cost_emissions_tradeoff(
         0.20: (8, 5),
     }
 
-    for _, row in results.iterrows():
+    for index, row in results.iterrows():
 
         carbon_weight = row[
             "carbon_weight_$_per_kgCO2"
@@ -1045,169 +1134,201 @@ def calculate_dispatch_metrics(
         "cost": float(total_cost),
         "emissions_kgCO2": float(total_emissions_kgCO2),
     }    
-    
 
+def validate_dispatch(
+    data: pd.DataFrame,
+    battery_parameters: dict[str, float],
+    tolerance: float = 1e-5
+) -> None:
+
+    min_soc_kWh = battery_parameters["min_soc_kWh"]
+    max_soc_kWh = battery_parameters["max_soc_kWh"]
+
+    max_charge_kw = battery_parameters["max_charge_kw"]
+    max_discharge_kw = battery_parameters["max_discharge_kw"]
+
+    if data["battery_soc_kWh"].min() < min_soc_kWh - tolerance:
+        raise ValueError(
+            "Battery SOC fell below minimum SOC."
+        )
+
+    if data["battery_soc_kWh"].max() > max_soc_kWh + tolerance:
+        raise ValueError(
+            "Battery SOC exceeded maximum SOC."
+        )
+
+    if data["battery_charge_kw"].max() > max_charge_kw + tolerance:
+        raise ValueError(
+            "Battery charging power exceeded its limit."
+        )
+
+    if data["battery_discharge_kw"].max() > max_discharge_kw + tolerance:
+        raise ValueError(
+            "Battery discharging power exceeded its limit."
+        )
+
+    if data["power_balance_error_kw"].abs().max() > tolerance:
+        raise ValueError(
+            "Power balance error exceeded tolerance."
+        )
+    print("Dispatch validation passed")
+
+
+
+##Main-------------------------------------------------------------------------------
 if __name__ == "__main__":
     timestep_hours = 0.25
     data = create_sample_dataframe(
         date="2026-08-01",
     )
-
+    ## data
     optimized_data = run_cost_optimization(
         data.copy(),
         battery_parameters,
     )
 
-    price_data = run_rule_based_dispatch(
-        data.copy(),
-        battery_parameters,
-        strategy="price",
-    )
-
-    carbon_data = run_rule_based_dispatch(
-        data.copy(),
-        battery_parameters,
-        strategy="carbon",
-    )
-
     carbon_optimized_data = run_carbon_optimization(
         data.copy(),
+        battery_parameters
+    )
+
+    carbon_weights = [
+        0.00,
+        0.02,
+        0.05,
+        0.10,
+        0.20,
+    ]
+
+    
+    combined_data = run_combined_optimization(
+        data.copy(),
+        battery_parameters,
+        carbon_weight = 0.20,
+        degradation_cost_per_kWh=0.03,
+    )
+    
+
+    simultaneous_rows = optimized_data[
+        (optimized_data["battery_charge_kw"] > 0.01)
+        &
+        (optimized_data["battery_discharge_kw"] > 0.01)
+    ]
+
+    battery_usage_metrics = calculate_battery_usage_metrics(
+        optimized_data,
         battery_parameters,
     )
-    carbon_weights = [0.0, 0.02, 0.05, 0.10, 0.20]
-    combined_results = []
 
-    for carbon_weight in carbon_weights:
+    cost_battery_usage = calculate_battery_usage_metrics(
+        optimized_data,
+        battery_parameters,
+    )
+
+    carbon_battery_usage = calculate_battery_usage_metrics(
+        carbon_optimized_data,
+        battery_parameters,
+    )
+
+    combined_battery_usage = calculate_battery_usage_metrics(
+        combined_data,
+        battery_parameters
+    )
+# ---------------- COMBINED OPTIMIZATION WITH DEGRADATION ----------------
+
+    combined_data_with_degradation = run_combined_optimization(
+        data.copy(),
+        battery_parameters,
+        carbon_weight=0.20,
+        degradation_cost_per_kWh=0.03,
+    )
+
+    combined_degradation_metrics = calculate_dispatch_metrics(
+        combined_data_with_degradation
+    )
+
+    combined_degradation_battery_usage = calculate_battery_usage_metrics(
+        combined_data_with_degradation,
+        battery_parameters,
+    )
+
+    degradation_results = []
+    degradation_costs = [
+        0.00,
+        0.01,
+        0.03,
+        0.05,
+        0.10,
+    ]   
+
+    for degradation_cost in degradation_costs:
 
         combined_data = run_combined_optimization(
             data.copy(),
             battery_parameters,
-            carbon_weight,
+            carbon_weight=0.20,
+            degradation_cost_per_kWh=degradation_cost,
         )
 
-        combined_metrics = calculate_dispatch_metrics(
+        dispatch_metrics = calculate_dispatch_metrics(
             combined_data
         )
 
-        combined_results.append(
+        battery_usage_metrics = calculate_battery_usage_metrics(
+            combined_data,
+            battery_parameters,
+        )
+
+        degradation_results.append(
             {
-                "carbon_weight_$_per_kgCO2": carbon_weight,
-                "grid_import_kWh": combined_metrics["grid_import_kWh"],
-                "cost": combined_metrics["cost"],
-                "emissions_kgCO2": combined_metrics["emissions_kgCO2"]
+                "degradation_cost_per_kWh": degradation_cost,
+                "cost": dispatch_metrics["cost"],
+                "emissions_kgCO2": dispatch_metrics["emissions_kgCO2"],
+                "throughput_kWh": battery_usage_metrics["throughput_kWh"],
+                "equivalent_full_cycles": battery_usage_metrics[
+                    "equivalent_full_cycles"
+                ],
             }
         )
-    combined_result_df = pd.DataFrame(
-        combined_results
+
+    degradation_results_df = pd.DataFrame(
+        degradation_results
     )
-    print(combined_result_df)
-    plot_cost_emissions_tradeoff(
-        combined_result_df
-    )
-
-
-    #metrics---------------------------------------------------------------
-
-    optimized_metrics = calculate_dispatch_metrics(
-        optimized_data
+    validate_dispatch(
+        combined_data_with_degradation,
+        battery_parameters,
     )
 
-    price_metrics = calculate_dispatch_metrics(
-        price_data
-    )
-
-    carbon_metrics = calculate_dispatch_metrics(
-        carbon_data
-    )
-
-    carbon_optimized_metrics = calculate_dispatch_metrics(
-        carbon_optimized_data
-    )
-    #-----------------------------------------------------------------------#
-
-
-#rows
-    charging_rows = optimized_data[
-        optimized_data["battery_charge_kw"] > 0.1
+    simultaneous_grid_exchange = combined_data_with_degradation[
+        (combined_data_with_degradation["grid_import_kw"] > 0.01)
+        &
+        (combined_data_with_degradation["grid_export_kw"] > 0.01)     
     ]
 
-    discharging_rows = optimized_data[
-        optimized_data["battery_discharge_kw"] > 0.1
-    ]
-
-    carbon_charging_rows = carbon_optimized_data[
-        carbon_optimized_data["battery_charge_kw"] > 0.1
-    ]
-
-    carbon_discharging_rows = carbon_optimized_data[
-        carbon_optimized_data["battery_discharge_kw"] > 0.1
-    ]
-
-    print("Optimized:", optimized_metrics)
-    print("Price-aware:", price_metrics)
-    print("Carbon-aware:", carbon_metrics)
-    print("Carbon optimized:", carbon_optimized_metrics)
-
     print(
-    charging_rows[
-        [
-            "timestamp",
-            "price_per_kWh",
-            "battery_charge_kw",
-            "battery_soc_kWh",
-            "grid_import_kw",
-        ]
-    ]
+        "\nNumber of simultaneous import/export intervals:",
+        len(simultaneous_grid_exchange)
     )
 
-    print(
-        discharging_rows[
-        [
-            "timestamp",
-            "price_per_kWh",
-            "battery_discharge_kw",
-            "battery_soc_kWh",
-            "grid_import_kw",
-        ]
-        ]
+    if len(simultaneous_grid_exchange) > 0:
+        print(
+            simultaneous_grid_exchange[
+                [
+                    "timestamp",
+                    "grid_import_kw",
+                    "grid_export_kw",
+                ]
+            ]
+        )
+    else:
+        print(
+            "No meaningful simultaneous grid import/export found."
+        )
+
+    plot_degradation_sensitivity(
+        degradation_results_df
     )
 
-    print(
-        "Price-aware final SOC:",
-        price_data["battery_soc_kWh"].iloc[-1]
-    )
-
-    print(
-        "Optimized final SOC:",
-        optimized_data["battery_soc_kWh"].iloc[-1]
-    )
-    print(
-        carbon_charging_rows[
-        [
-            "timestamp",
-            "gCO2/kWh",
-            "battery_charge_kw",
-            "battery_soc_kWh",
-            "grid_import_kw",
-        ]
-        ]
-    )
-
-    print(
-        carbon_discharging_rows[
-        [
-            "timestamp",
-            "gCO2/kWh",
-            "battery_discharge_kw",
-            "battery_soc_kWh",
-            "grid_import_kw",
-        ]
-        ]
-    )
-    
-
-    print("Optimized:", optimized_metrics)
-    print("Price-aware:", price_metrics)    
 
 
 
