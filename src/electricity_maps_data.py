@@ -2,6 +2,13 @@ import requests
 import os
 import pandas as pd
 import single_day_analysis as sda
+from dotenv import load_dotenv
+
+load_dotenv()
+
+api_key = os.getenv(
+    "ELECTRICITY_MAPS_API_KEY"
+)
 
 pd.set_option(
     "display.max_columns",
@@ -255,7 +262,29 @@ def create_dispatch_comparison(
 
     return comparison
 
+#Calculate Weighted Carbon Intensity with power weight
 
+def calculate_weighted_carbon_intensity(
+        intervals: pd.DataFrame,
+        power_column: str,
+) -> float:
+
+    if intervals[power_column].sum() == 0:
+        raise ValueError(
+            "Total power must be greater than 0."
+        )
+
+    weighted_carbon = (
+        (intervals["gCO2/kWh"]
+        * intervals[power_column]
+    ).sum()
+    /
+    intervals[power_column].sum()
+    )
+
+    return float(
+        weighted_carbon
+    )
 
 
 
@@ -385,6 +414,20 @@ if __name__ == "__main__":
 
     average_discharge_carbon = (
         real_discharging_intervals["gCO2/kWh"].mean()
+    )
+
+    weighted_charge_carbon = (
+        calculate_weighted_carbon_intensity(
+            real_charging_intervals,
+            "real_charge_kw",
+        )
+    )
+
+    weighted_discharge_carbon = (
+        calculate_weighted_carbon_intensity(
+            real_discharging_intervals,
+            "real_discharge_kw",
+        )
     )
 
     print(
