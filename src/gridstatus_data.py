@@ -184,6 +184,69 @@ def validate_price_data(
         "Price data validation passed."
     )
 
+def get_multi_day_caiso_prices(
+        start_date: str,
+        number_of_days: int,
+) ->pd.DataFrame:
+
+    daily_dataframes = []
+
+    start_timestamp = pd.Timestamp(
+        start_date
+    )
+
+    for day_offset in range(
+        number_of_days
+    ):
+
+        current_date = (
+            start_timestamp
+            + pd.Timedelta(
+                days=day_offset
+            )
+        )
+
+        date_string = (
+            current_date.strftime(
+                "%Y-%m-%d"
+            )
+        )
+
+        raw_data = (
+            get_caiso_real_time_prices(
+                date_string
+            )
+        )
+
+        price_data = (
+            caiso_price_to_dataframe(
+                raw_data
+            )
+        )
+
+        validate_price_data(
+            price_data,
+            expected_rows = 96,
+        )
+
+        daily_dataframes.append(
+            price_data
+        )
+
+    multi_day_data = pd.concat(
+        daily_dataframes,
+        ignore_index = True,
+    )
+
+    validate_price_data(
+        multi_day_data,
+        expected_rows=(
+            number_of_days * 96
+        ),
+    )
+
+    return multi_day_data
+
 
 
 
