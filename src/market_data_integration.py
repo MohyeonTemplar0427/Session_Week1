@@ -11,6 +11,7 @@ import multi_day_analysis as mda
 import time
 from battery import Battery
 from config import ExperimentConfig, to_optimizer_parameters
+from results import ExperimentResult
 
 battery = Battery(
     capacity_kWh = 20.0,
@@ -303,7 +304,8 @@ def run_multi_day_experiment(
         config: ExperimentConfig,
         api_key: str,
         battery_parameters: dict[str, float],
-) -> None:
+) -> ExperimentResult:
+
     multi_day_synthetic_data = (
         mda.create_multi_day_dataframe(
             config.start_date,
@@ -611,7 +613,82 @@ def run_multi_day_experiment(
         "\nMulti-day experiment completed."
     )
 
-    return None
+    return ExperimentResult(
+        no_battery_cost=float(
+            no_battery_cost
+        ),
+
+        no_battery_emissions=float(
+            no_battery_emissions
+        ),
+
+        synthetic_real_cost=float(
+            synthetic_real_cost
+        ),
+
+        synthetic_real_emissions=float(
+            synthetic_real_emissions
+        ),
+
+        real_market_cost=float(
+            real_market_cost
+        ),
+
+        real_market_emissions=float(
+            real_market_emissions
+        ),
+
+        cost_savings=float(
+            cost_savings
+        ),
+
+        emissions_reduction=float(
+            emissions_reduction
+        ),
+
+        synthetic_usage=synthetic_usage,
+        real_market_usage=real_market_usage,
+
+        weighted_charge_price=float(
+            weighted_charge_price
+        ),
+
+        weighted_discharge_price = float(
+            weighted_discharge_price
+        ),
+
+        weighted_charge_carbon=float(
+            weighted_charge_carbon
+        ),
+
+        weighted_discharge_carbon=float(
+            weighted_discharge_carbon
+        ),
+    )
+
+def experiment_result_to_dict(
+    experiment_name: str,
+    result: ExperimentResult,
+) -> dict[str, float | str]:
+    return {
+        "experiment_name": experiment_name,
+
+        "no_battery_cost": result.no_battery_cost,
+
+        "real_market_cost": result.real_market_cost,
+
+        "cost_savings": result.cost_savings,
+
+        "no_battery_emissions": result.no_battery_emissions,
+
+        "real_market_emissions": result.real_market_emissions,
+
+        "emissions_reduction": result.emissions_reduction,
+
+        "battery_throughput_kWh": result.real_market_usage["throughput_kWh"],
+
+        "equivalent_full_cycles": result.real_market_usage["equivalent_full_cycles"],   
+    }
 
 
 
@@ -640,17 +717,27 @@ if __name__ == "__main__":
     # Goto config.py to see all available parameters
     config = ExperimentConfig(
         start_date="2026-08-25",
-        number_of_days= 2,
+        number_of_days = 2,
     )
     
     previous_runtime = load_previous_runtime()
     start_time = time.perf_counter()
     
-    run_multi_day_experiment(
-        config = config,
-        api_key = api_key,
-        battery_parameters = battery_parameters,
+    result0 = run_multi_day_experiment(
+        config=config,
+        api_key=api_key,
+        battery_parameters=battery_parameters,
     )
+
+    result_summary = experiment_result_to_dict(
+        "Baseline",
+        result0,
+    )
+
+    summary_table = pd.DataFrame(
+        [result_summary],
+    )
+
 
     end_time = time.perf_counter()
     run_time = end_time - start_time
@@ -669,3 +756,25 @@ if __name__ == "__main__":
     print(config.number_of_days)
     print(config.carbon_weight)
     print(config.caiso_node)
+
+    print(
+        f"\nReal-market cost: ${result0.real_market_cost:.2f}"
+    )
+
+    print(
+        f"\nReal-market emissions: {result0.real_market_emissions:.2f} kgCO2"
+    )
+
+    print(
+        f"\nReal-market usage: {result0.real_market_usage}"
+    )
+
+    print(
+        f"\n\n{result_summary}"
+    )
+
+    print(
+        summary_table.to_string(
+            index = False,
+        )
+    )
