@@ -7,6 +7,7 @@ import single_day_analysis as sda
 import electricity_maps_data as emd
 import gridstatus_data as gsd
 import multi_day_analysis as mda
+import time
 
 
 
@@ -250,70 +251,57 @@ def validate_integrated_market_data(
     )
 
 
+def run_multi_day_experiment(
+        start_date: str,
+        number_of_days: int,
+        api_key: str,
+        battery_parameters: dict[str, float],
+        carbon_weight: float,
+        degradation_cost_per_kWh: float,
+) -> None:
 
-
-# Main--------------------------------------------------------------------------------------------
-if __name__ == "__main__":
-
-    date = "2026-08-26"
-
-    battery_parameters = {
-    "capacity_kWh": 20.0,
-    "initial_soc_kWh": 10.0,
-    "min_soc_kWh": 2.0,
-    "max_soc_kWh": 18.0,
-    "max_charge_kw": 5.0,
-    "max_discharge_kw": 5.0,
-    "charge_efficiency": 0.95,
-    "discharge_efficiency": 0.95,
-    }
-
-    carbon_weight = 0.20
-    degradation_cost_per_kWh = 0.03
-
-    synthetic_data = (
-        sda.create_sample_dataframe(
-            date = date
+    multi_day_synthetic_data = (
+        mda.create_multi_day_dataframe(
+            start_date,
+            number_of_days,
         )
     )
 
-    raw_price_data = (
-        gsd.get_caiso_real_time_prices(
-            date
+    multi_day_price_data = (
+        gsd.get_multi_day_caiso_prices(
+            start_date,
+            number_of_days,
         )
     )
 
-    price_data = (
-        gsd.caiso_price_to_dataframe(
-            raw_price_data
-        )
-    )
-
-    gsd.validate_price_data(
-        price_data,
-        expected_rows=96,
-    )
-
-    carbon_data = (
+    multi_day_carbon_data = (
         emd.get_multi_day_carbon_data(
-            str(api_key),
+            api_key,
             "US-CAL-CISO",
-            date,
-            1,
+            start_date,
+            number_of_days,
         )
     )
 
-    real_market_data = (
+    multi_day_real_market_data = (
         merge_real_market_data(
-            synthetic_data,
-            price_data,
-            carbon_data,
+            multi_day_synthetic_data,
+            multi_day_price_data,
+            multi_day_carbon_data,
         )
     )
 
+    ## 2. Validate Integrated input data
+
+    validate_integrated_market_data(
+        multi_day_real_market_data,
+        expected_rows = number_of_days * 96
+    )
+
+    # 3. Run optimization
     synthetic_optimized = (
         sda.run_combined_optimization(
-            synthetic_data,
+            multi_day_synthetic_data,
             battery_parameters,
             carbon_weight,
             degradation_cost_per_kWh,
@@ -322,40 +310,80 @@ if __name__ == "__main__":
 
     real_market_optimized = (
         sda.run_combined_optimization(
-            real_market_data,
+            multi_day_real_market_data,
             battery_parameters,
             carbon_weight,
             degradation_cost_per_kWh,
         )
     )
 
-    synthetic_schedule_real_cost = (
+    #4. Validate Optimized Dispatch
+
+    sda.validate_dispatch(
+        synthetic_optimized,
+        battery_parameters
+    )
+
+    sda.validate_dispatch(
+        real_market_optimized,
+        battery_parameters,
+    )
+
+    #5. No-battery baseline
+
+    no_battery_dispatch = (
+        create_no_battery_dispatch(
+            multi_day_real_market_data
+        )
+    )
+
+    #6. Evaluate cost using Real CAISO Prices
+
+    no_battery_cost = (
+        calculate_cost_with_external_price(
+            no_battery_dispatch,
+            multi_day_price_data,
+        )
+    )
+
+    synthetic_real_cost = (
         calculate_cost_with_external_price(
             synthetic_optimized,
-            price_data,
+            multi_day_price_data,
         )
     )
 
-    real_market_schedule_real_cost = (
+    real_market_cost = (
         calculate_cost_with_external_price(
             real_market_optimized,
-            price_data,
+            multi_day_price_data,
         )
     )
 
-    synthetic_schedule_real_emissions = (
+    #7. Evaluate emissions using Real carbon data
+
+    no_battery_emissions =(
         emd.calculate_emissions_with_external_carbon(
-            synthetic_optimized, 
-            carbon_data,
+            no_battery_dispatch,
+            multi_day_carbon_data,
         )
     )
 
-    real_market_schedule_real_emissions = (
+    synthetic_real_emissions = (
+        emd.calculate_emissions_with_external_carbon(
+            synthetic_optimized,
+            multi_day_carbon_data,
+        )
+    )
+
+    real_market_emissions = (
         emd.calculate_emissions_with_external_carbon(
             real_market_optimized,
-            carbon_data,
+            multi_day_carbon_data,
         )
     )
+
+    # 8. Battery Usage
 
     synthetic_usage = (
         sda.calculate_battery_usage_metrics(
@@ -371,32 +399,29 @@ if __name__ == "__main__":
         )
     )
 
+    #9. Analyze real-market dispatch
     dispatch_summary = (
         create_real_dispatch_summary(
             real_market_optimized,
-            real_market_data,
+            multi_day_real_market_data,
         )
     )
 
-    largest_charging = (
-        dispatch_summary.nlargest(
-            10,
-            "battery_charge_kw",
-        )
+    active_charging = (
+        dispatch_summary.loc[
+            dispatch_summary[
+                "battery_charge_kw"
+            ] > 0.01
+        ].copy()
     )
 
-    largest_discharging = (
-        dispatch_summary.nlargest(
-            10,
-            "battery_discharge_kw"
-        )
+    active_discharging = (
+        dispatch_summary.loc[
+            dispatch_summary[
+                "battery_discharge_kw"
+            ] > 0.01
+        ].copy()
     )
-
-    active_charging = dispatch_summary.loc[dispatch_summary["battery_charge_kw"] > 0.01].copy()
-
-    active_discharging = dispatch_summary.loc[
-        dispatch_summary["battery_discharge_kw"] > 0.01
-    ].copy()
 
     weighted_charge_price = (
         calculate_power_weighted_average(
@@ -406,11 +431,11 @@ if __name__ == "__main__":
         )
     )
 
-    weighted_discharge_price = (
+    weighted_discharge_price =(
         calculate_power_weighted_average(
             active_discharging,
             "price_per_kWh",
-            "battery_discharge_kw",
+            "battery_discharge_kw"
         )
     )
 
@@ -426,366 +451,65 @@ if __name__ == "__main__":
         calculate_power_weighted_average(
             active_discharging,
             "gCO2/kWh",
-            "battery_discharge_kw"
-        )
-    )
-
-    no_battery_dispatch = (
-        create_no_battery_dispatch(
-            real_market_data
-        )
-    )
-
-    no_battery_cost = (
-        calculate_cost_with_external_price(
-            no_battery_dispatch,
-            price_data,
-        )
-    )
-
-    no_battery_emissions = (
-        emd.calculate_emissions_with_external_carbon(
-            no_battery_dispatch,
-            carbon_data,
-        )
-    )
-
-    cost_savings = (
-        no_battery_cost
-        - real_market_schedule_real_cost
-    )
-
-    emissions_reduction = (
-        no_battery_emissions
-        - real_market_schedule_real_emissions
-    )
-    #gsd.get_multi_day_caiso_prices test -------------------------------------
-    start_date = "2026-08-25"
-    number_of_days = 2
-
-    multi_day_price_data = (
-        gsd.get_multi_day_caiso_prices(
-            start_date,
-            number_of_days,
-        )
-    )
-
-    multi_day_synthetic_data = (
-        mda.create_multi_day_dataframe(
-            start_date,
-            number_of_days
-        )
-    )
-
-    multi_day_carbon_data = (
-        emd.get_multi_day_carbon_data(
-            str(api_key),
-            "US-CAL-CISO",
-            start_date,
-            number_of_days
-        )
-    )
-
-    multi_day_real_market_data = (
-        merge_real_market_data(
-            multi_day_synthetic_data,
-            multi_day_price_data,
-            multi_day_carbon_data
-        )
-    )
-
-    multi_day_synthetic_optimized = (
-        sda.run_combined_optimization(
-            multi_day_synthetic_data,
-            battery_parameters,
-            carbon_weight,
-            degradation_cost_per_kWh,
-        )
-    )
-
-    multi_day_real_market_optimized = (
-        sda.run_combined_optimization(
-            multi_day_real_market_data,
-            battery_parameters,
-            carbon_weight,
-            degradation_cost_per_kWh,
-        )
-    )
-
-    multi_day_synthetic_real_cost = (
-        calculate_cost_with_external_price(
-            multi_day_synthetic_optimized,
-            multi_day_price_data,
-        )
-    )
-
-    multi_day_real_market_cost = (
-        calculate_cost_with_external_price(
-            multi_day_real_market_optimized,
-            multi_day_price_data,
-        )
-    )
-
-    multi_day_synthetic_real_emissions = (
-        emd.calculate_emissions_with_external_carbon(
-            multi_day_synthetic_optimized,
-            multi_day_carbon_data,
-        )
-    )
-
-    multi_day_real_market_emissions = (
-        emd.calculate_emissions_with_external_carbon(
-            multi_day_real_market_optimized,
-            multi_day_carbon_data,
-        )
-    )
-
-    multi_day_no_battery = (
-        create_no_battery_dispatch(
-            multi_day_real_market_data
-        )
-    )
-
-    multi_day_no_battery_cost = (
-        calculate_cost_with_external_price(
-            multi_day_no_battery,
-            multi_day_price_data,
-        )
-    )
-
-    multi_day_no_battery_emissions = (
-        emd.calculate_emissions_with_external_carbon(
-            multi_day_no_battery,
-            multi_day_carbon_data,
-        )
-    )
-    multi_day_synthetic_usage = (
-    sda.calculate_battery_usage_metrics(
-        multi_day_synthetic_optimized,
-        battery_parameters,
-        )
-    )
-
-    multi_day_real_market_usage = (
-        sda.calculate_battery_usage_metrics(
-        multi_day_real_market_optimized,
-        battery_parameters,
-        )
-    )
-
-    multi_day_dispatch_summary = (
-        create_real_dispatch_summary(
-            multi_day_real_market_optimized,
-            multi_day_real_market_data,
-        )
-    )
-
-    multi_day_active_charging = (
-        multi_day_dispatch_summary.loc[
-            multi_day_dispatch_summary[
-                "battery_charge_kw"
-            ] > 0.01
-        ].copy()
-    )
-
-    multi_day_active_discharging = (
-        multi_day_dispatch_summary.loc[
-            multi_day_dispatch_summary[
-                "battery_discharge_kw"
-            ] > 0.01
-        ].copy()
-    )
-
-    multi_day_weighted_charge_price = (
-        calculate_power_weighted_average(
-            multi_day_active_charging,
-            "price_per_kWh",
-            "battery_charge_kw",
-        )
-    )
-
-    multi_day_weighted_discharge_price = (
-        calculate_power_weighted_average(
-            multi_day_active_discharging,
-            "price_per_kWh",
             "battery_discharge_kw",
         )
     )
 
-    multi_day_weighted_charge_carbon = (
-        calculate_power_weighted_average(
-            multi_day_active_charging,
-            "gCO2/kWh",
-            "battery_charge_kw",
-        )
+    # 10. Improvements vs no battery
+    cost_savings = (
+        no_battery_cost
+        - real_market_cost
     )
 
-    multi_day_weighted_discharge_carbon = (
-        calculate_power_weighted_average(
-            multi_day_active_discharging,
-            "gCO2/kWh",
-            "battery_charge_kw",
-        )
+    emissions_reduction = (
+        no_battery_emissions
+        - real_market_emissions
     )
 
-
-
-
-    
-
-
-    #Print Calls #################################################################################
+    #11. Print Results
 
     print(
-    "\nSynthetic-signal schedule evaluated "
-    "with real CAISO price:"
+        f"\n=== {number_of_days}-Day "
+        "Real-Market Experiment ==="
     )
-
-    print(
-        f"${synthetic_schedule_real_cost:.2f}"
-    )
-
-    print(
-        "Real-market schedule evaluated "
-        "with real CAISO price:"
-    )
-
-    print(
-        f"${real_market_schedule_real_cost:.2f}"
-    )
-
-    print(
-        "\nSynthetic-signal schedule evaluated "
-        "with real carbon:"
-    )
-
-    print(
-        f"{synthetic_schedule_real_emissions:.2f} kgCO2"
-    )
-
-    print(
-        "\nReal-market schedule evaluated "
-        "with real carbon:"
-    )
-
-    print(
-        f"{real_market_schedule_real_emissions:.2f} kgCO2"
-    )
-
-
-    print(
-    "\nSynthetic-signal battery usage:"
-    )
-
-    print(synthetic_usage)
-
-    print(
-    "\nReal-market battery usage:"
-    )
-
-    print(real_market_usage)
-
-    print(
-    "\nLargest real-market charging intervals:"
-)
-
-    print(
-        largest_charging.to_string(
-        index=False
-        )
-    )
-
-    print(
-        "\nLargest real-market discharging intervals:"
-    )
-
-    print(
-        largest_discharging.to_string(
-        index=False
-        )
-    )
-
-    print(
-    "\nActual charging intervals:"
-)
-
-    print(
-        active_charging.to_string(
-        index=False
-        )
-    )
-
-    print(
-        "\nActual discharging intervals:"
-    )
-
-    print(
-        active_discharging.to_string(
-        index=False
-        )
-    )
-
-
-    print(
-    "\nPower-weighted charging price:",
-    f"${weighted_charge_price:.4f}/kWh",
-)
-
-    print(
-        "Power-weighted discharging price:",
-        f"${weighted_discharge_price:.4f}/kWh",
-    )
-
-    print(
-        "\nPower-weighted charging carbon:",
-        f"{weighted_charge_carbon:.2f} gCO2/kWh",
-    )
-
-    print(
-        "Power-weighted discharging carbon:",
-        f"{weighted_discharge_carbon:.2f} gCO2/kWh",
-    )
-
-
-    print(
-    "\n=== Real-Market Performance Comparison ==="
-)
 
     print(
         "\nNo battery:"
     )
+
     print(
         f"Cost: ${no_battery_cost:.2f}"
     )
+
     print(
         f"Emissions: "
         f"{no_battery_emissions:.2f} kgCO2"
     )
 
-
     print(
         "\nSynthetic-signal schedule:"
     )
+
     print(
-        f"Cost: "
-        f"${synthetic_schedule_real_cost:.2f}"
-    )
-    print(
-        f"Emissions: "
-        f"{synthetic_schedule_real_emissions:.2f} kgCO2"
+        f"Cost: ${synthetic_real_cost:.2f}"
     )
 
+    print(
+        f"Emissions: "
+        f"{synthetic_real_emissions:.2f} kgCO2"
+    )
 
     print(
         "\nReal-market schedule:"
     )
+
     print(
-        f"Cost: "
-        f"${real_market_schedule_real_cost:.2f}"
+        f"Cost: ${real_market_cost:.2f}"
     )
+
     print(
         f"Emissions: "
-        f"{real_market_schedule_real_emissions:.2f} kgCO2"
+        f"{real_market_emissions:.2f} kgCO2"
     )
 
     print(
@@ -803,113 +527,83 @@ if __name__ == "__main__":
     )
 
     print(
-        "\nMulti-day CAISO prices:"
+        "\nSynthetic battery usage:"
     )
 
     print(
-        multi_day_price_data.head()
+        synthetic_usage
     )
 
     print(
-        multi_day_price_data.tail()
+        "\nReal-market battery usage:"
     )
 
     print(
-        "Shape:",
-        multi_day_price_data.shape,
-    )
-
-
-    print(
-    "\n=== Multi-Day Real-Market Data ==="
-)
-
-    print(
-        multi_day_real_market_data.head()
+        real_market_usage
     )
 
     print(
-        multi_day_real_market_data.tail()
+        "\nPower-weighted charging price:",
+        f"${weighted_charge_price:.4f}/kWh",
     )
 
     print(
-        "Shape:",
-        multi_day_real_market_data.shape,
+        "Power-weighted discharging price:",
+        f"${weighted_discharge_price:.4f}/kWh",
     )
 
     print(
-        "\n=== 2-Day Real-Market Comparison ==="
+        "\nPower-weighted charging carbon:",
+        f"{weighted_charge_carbon:.2f} gCO2/kWh",
     )
 
     print(
-        f"No battery: "
-        f"${multi_day_no_battery_cost:.2f}, "
-        f"{multi_day_no_battery_emissions:.2f} kgCO2"
+        "Power-weighted discharging carbon:",
+        f"{weighted_discharge_carbon:.2f} gCO2/kWh",
     )
 
     print(
-        f"Synthetic-signal schedule: "
-        f"${multi_day_synthetic_real_cost:.2f}, "
-        f"{multi_day_synthetic_real_emissions:.2f} kgCO2"
-    )   
-
-    print(
-        f"Real-market schedule: "
-        f"${multi_day_real_market_cost:.2f}, "
-        f"{multi_day_real_market_emissions:.2f} kgCO2"
+        "\nMulti-day experiment completed."
     )
 
-
-    print(
-        "\nSynthetic multi-day battery usage:"
-    )   
-    print(multi_day_synthetic_usage)
-
-    print(
-        "\nReal-market multi-day battery usage:"
-    )
-
-    print(multi_day_real_market_usage)
-
-
-    print(
-    "\n=== 2-Day Power-Weighted Dispatch Signals ==="
-)
-
-    print(
-        "Charging price:",
-        f"${multi_day_weighted_charge_price:.4f}/kWh",
-    )
-
-    print(
-        "Discharging price:",
-        f"${multi_day_weighted_discharge_price:.4f}/kWh",
-    )
-
-    print(
-        "Charging carbon:",
-        f"{multi_day_weighted_charge_carbon:.2f} gCO2/kWh",
-    )
-
-    print(
-        "Discharging carbon:",
-        f"{multi_day_weighted_discharge_carbon:.2f} gCO2/kWh",
-    )
-
-
-    validate_integrated_market_data(
-        multi_day_real_market_data,
-        expected_rows=number_of_days * 96,
-    )
+    return None
     
-    sda.validate_dispatch(
-        multi_day_real_market_optimized,
-        battery_parameters,
+
+
+
+
+# Main--------------------------------------------------------------------------------------------
+if __name__ == "__main__":
+
+    if api_key is None:
+        raise ValueError(
+            "Electricity Maps API key not loaded."
+        )
+
+    battery_parameters = {
+        "capacity_kWh": 20.0,
+        "initial_soc_kWh": 10.0,
+        "min_soc_kWh": 2.0,
+        "max_soc_kWh": 18.0,
+        "max_charge_kw": 5.0,
+        "max_discharge_kw": 5.0,
+        "charge_efficiency": 0.95,
+        "discharge_efficiency": 0.95,
+    }
+
+    start_time = time.perf_counter()
+
+    run_multi_day_experiment(
+        start_date="2026-08-25",
+        number_of_days=2,
+        api_key=api_key,
+        battery_parameters=battery_parameters,
+        carbon_weight=0.20,
+        degradation_cost_per_kWh=0.03
     )
-    
-    sda.validate_dispatch(
-        multi_day_synthetic_optimized,
-        battery_parameters
-    )
-    
-    
+
+    end_time = time.perf_counter()
+
+    run_time = end_time - start_time
+
+    print(f"Runtime: {run_time:.3f}secoonds.")
