@@ -1,6 +1,7 @@
 import os
 import pandas as pd
-
+from pathlib import Path
+import json
 from dotenv import load_dotenv, find_dotenv
 
 import single_day_analysis as sda
@@ -9,9 +10,22 @@ import gridstatus_data as gsd
 import multi_day_analysis as mda
 import time
 
-
+RUNTIME_FILE = Path("data/runtime.json")
 
 env_path = find_dotenv()
+
+PROJECT_ROOT = (
+    Path(__file__).resolve().parents[1]
+)
+
+CAISO_CACHE_DIR = (
+    PROJECT_ROOT
+    / "data"
+    / "cache"
+    / "caiso"
+)
+
+RUNTIME_FILE = Path("data/previous_runtime.txt")
 
 print(
     "Loading .env from:",
@@ -28,6 +42,28 @@ api_key = os.getenv(
     "ELECTRICITY_MAPS_API_KEY"
 )
 
+
+def load_previous_runtime() -> float | None:
+    if not RUNTIME_FILE.exists():
+        return None
+
+    with open(RUNTIME_FILE, "r") as file:
+        data = json.load(file)
+
+    return float(data["runtime"])
+
+def save_runtime(runtime:float) -> None:
+    RUNTIME_FILE.parent.mkdir(
+        parents=True,
+        exist_ok=True,
+    )
+
+    with open(RUNTIME_FILE, "w") as file:
+        json.dump(
+            {"runtime": runtime},
+            file,
+            indent = 4
+        )
 
 #Merge real market data from sda,
 def merge_real_market_data(
@@ -129,6 +165,7 @@ def create_real_dispatch_summary(
 
 ## calculate the power-weighted average price and carbon intensity during charging and discharging
 ## value can be carbon intensity or unit electricity price
+
 def calculate_power_weighted_average(
         data: pd.DataFrame,
         value_column: str,
@@ -567,8 +604,6 @@ def run_multi_day_experiment(
     )
 
     return None
-    
-
 
 
 
@@ -591,10 +626,11 @@ if __name__ == "__main__":
         "discharge_efficiency": 0.95,
     }
 
+    previous_runtime = load_previous_runtime()
     start_time = time.perf_counter()
 
     run_multi_day_experiment(
-        start_date="2026-08-25",
+        start_date="2026-08-20",
         number_of_days=2,
         api_key=api_key,
         battery_parameters=battery_parameters,
@@ -603,7 +639,13 @@ if __name__ == "__main__":
     )
 
     end_time = time.perf_counter()
-
     run_time = end_time - start_time
+    
+    if previous_runtime is not None:
+        print(
+            f"Previous runtime: "
+            f"{previous_runtime:3f}s"
+        )
+    print(f"Cuerrent runtime: {run_time:.3f}s.")
 
-    print(f"Runtime: {run_time:.3f}secoonds.")
+    save_runtime(run_time)

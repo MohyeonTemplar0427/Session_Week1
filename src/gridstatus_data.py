@@ -1,11 +1,23 @@
 import gridstatus
 import pandas as pd
 import time
+from pathlib import Path
 
 
 LOCAL_TIMEZONE = "America/Los_Angeles"
 
 caiso = gridstatus.CAISO()
+
+PROJECT_ROOT = (
+    Path(__file__).resolve().parents[1]
+)
+
+CAISO_CACHE_DIR = (
+    PROJECT_ROOT
+    / "data"
+    / "cache"
+    / "caiso"
+)
 
 def measure_average_query_time(
     number_of_runs: int = 5,
@@ -184,6 +196,87 @@ def validate_price_data(
         "Price data validation passed."
     )
 
+# Caching function used to improve runtime
+def load_or_fetch_caiso_prices(
+        date: str,
+        force_refresh: bool = False,
+) -> pd.DataFrame:
+
+    cache_file = (
+        CAISO_CACHE_DIR
+        / f"caiso_np165_{date}.csv"
+    )
+
+    if (
+        cache_file.exists() 
+        and not force_refresh
+    ):
+        print(
+            f"Loading cached CAISO prices "
+            f"for {date}"
+        )
+
+        data = pd.read_csv(
+            cache_file
+        )
+
+        data["timestamp"] = (
+            pd.to_datetime(
+                data["timestamp"],
+                utc=True,
+            )
+            .dt.tz_convert(
+                "America/Los_Angeles"
+            )
+        )
+        validate_price_data(
+            data,
+            expected_rows = 96
+        )
+
+        return data
+
+    print(
+        f"Fetching CAISO prices "
+        f"from API for {date}"
+    )
+
+    raw_data = (
+        get_caiso_real_time_prices(
+            date
+        )
+    )
+
+    data = (
+        caiso_price_to_dataframe(
+            raw_data
+        )
+    )
+
+    validate_price_data(
+        data,
+        expected_rows=96,
+    )
+
+    CAISO_CACHE_DIR.mkdir(
+        parents=True,
+        exist_ok=True,
+    )
+
+    data.to_csv(
+        cache_file,
+        index=False
+    )
+
+    print(
+        f"Saved CAISO cache: "
+        f"{cache_file.name}"
+    )
+
+    return data
+
+
+
 def get_multi_day_caiso_prices(
         start_date: str,
         number_of_days: int,
@@ -212,21 +305,11 @@ def get_multi_day_caiso_prices(
             )
         )
 
-        raw_data = (
-            get_caiso_real_time_prices(
-                date_string
-            )
-        )
-
         price_data = (
-            caiso_price_to_dataframe(
-                raw_data
+            load_or_fetch_caiso_prices(
+                date_string,
+                force_refresh=False,
             )
-        )
-
-        validate_price_data(
-            price_data,
-            expected_rows = 96,
         )
 
         daily_dataframes.append(
@@ -246,7 +329,6 @@ def get_multi_day_caiso_prices(
     )
 
     return multi_day_data
-
 
 
 
