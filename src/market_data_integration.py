@@ -287,7 +287,7 @@ def validate_integrated_market_data(
         "Integrated market data validation passed."
     )
 
-
+##Running multi-day experiment with input parameters
 def run_multi_day_experiment(
         start_date: str,
         number_of_days: int,
@@ -295,6 +295,7 @@ def run_multi_day_experiment(
         battery_parameters: dict[str, float],
         carbon_weight: float,
         degradation_cost_per_kWh: float,
+        sleep_seconds: float = 5.0
 ) -> None:
 
     multi_day_synthetic_data = (
@@ -305,9 +306,10 @@ def run_multi_day_experiment(
     )
 
     multi_day_price_data = (
-        gsd.get_multi_day_caiso_prices(
-            start_date,
-            number_of_days,
+        gsd.get_caiso_real_time_prices_range(
+            start_date=start_date,
+            number_of_days=number_of_days,
+            sleep_seconds=sleep_seconds,
         )
     )
 
@@ -625,27 +627,30 @@ if __name__ == "__main__":
         "charge_efficiency": 0.95,
         "discharge_efficiency": 0.95,
     }
+    ## sleep_second for gridstatus api request
+    test_sleep_seconds = 0
 
     previous_runtime = load_previous_runtime()
     start_time = time.perf_counter()
-
+    
     run_multi_day_experiment(
-        start_date="2026-08-20",
-        number_of_days=2,
+        start_date="2026-06-08",
+        number_of_days=3,
         api_key=api_key,
         battery_parameters=battery_parameters,
-        carbon_weight=0.20,
-        degradation_cost_per_kWh=0.03
+         carbon_weight=0.20,
+        degradation_cost_per_kWh=0.03,
+        sleep_seconds=test_sleep_seconds
     )
 
     end_time = time.perf_counter()
     run_time = end_time - start_time
-    
+        
     if previous_runtime is not None:
         print(
             f"Previous runtime: "
             f"{previous_runtime:3f}s"
         )
-    print(f"Cuerrent runtime: {run_time:.3f}s.")
+    print(f"Cuerrent runtime with sleep seconds ({test_sleep_seconds}): {run_time:.3f}s.")
 
     save_runtime(run_time)

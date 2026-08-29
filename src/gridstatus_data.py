@@ -71,6 +71,50 @@ def get_caiso_real_time_prices(
 
     return data
 
+def get_caiso_real_time_prices_range(
+        start_date: str,
+        number_of_days: int,
+        sleep_seconds: float = 5.0
+) -> pd.DataFrame:
+
+    caiso = gridstatus.CAISO()
+
+    start_timestamp = pd.Timestamp(
+        start_date
+    )
+
+    end_timestamp = (
+        start_timestamp
+        + pd.Timedelta(
+            days=number_of_days
+        )
+    )
+
+    raw_data = caiso.get_lmp(
+        date=start_timestamp,
+        end=end_timestamp,
+        market=gridstatus.Markets.REAL_TIME_15_MIN,
+        locations=[
+             "TH_NP15_GEN-APND"
+        ],
+        sleep = sleep_seconds,
+    )
+
+    price_data = (
+        caiso_price_to_dataframe(
+            raw_data
+        )
+    )
+
+    validate_price_data(
+        price_data,
+        expected_rows=(
+            number_of_days * 96
+        ),
+    )
+
+    return price_data
+
 
 ## Convert price data into pandas dataframe
 def caiso_price_to_dataframe(
