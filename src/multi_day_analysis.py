@@ -501,7 +501,7 @@ if __name__ == "__main__":
 
     number_of_days = 14
 
-    # ---------------- INPUT DATA ----------------
+    #---------------- INPUT DATA -------------------------------
 
     horizon_data = create_multi_day_dataframe(
         start_date="2026-08-01",

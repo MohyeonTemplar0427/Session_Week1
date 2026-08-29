@@ -6,6 +6,8 @@ from dotenv import load_dotenv, find_dotenv
 import single_day_analysis as sda
 import electricity_maps_data as emd
 import gridstatus_data as gsd
+import multi_day_analysis as mda
+
 
 
 env_path = find_dotenv()
@@ -167,6 +169,85 @@ def create_no_battery_dispatch(
     no_battery_data["battery_discharge_kw"] = 0.0
 
     return no_battery_data
+
+
+def validate_integrated_market_data(
+    data: pd.DataFrame,
+    expected_rows: int,
+    timestep_minutes: int = 15,
+) -> None:
+
+    required_columns = {
+        "timestamp",
+        "load_kw",
+        "pv_kw",
+        "net_load_kw",
+        "price_per_kWh",
+        "gCO2/kWh",
+    }
+
+    missing_columns = (
+        required_columns
+        - set(data.columns)
+    )
+
+    if missing_columns:
+        raise ValueError(
+            f"Missing required columns: {missing_columns}"
+        )
+
+    if len(data) != expected_rows:
+        raise ValueError(
+            f"Expected {expected_rows} rows, "
+            f"but received {len(data)}."
+        )
+
+    if data.isna().any().any():
+        raise ValueError(
+            "Integrated market data contains missing values."
+        )
+
+    if not data["timestamp"].is_unique:
+        raise ValueError(
+            "Duplicate timestamps found."
+        )
+
+    if not data[
+        "timestamp"
+    ].is_monotonic_increasing:
+        raise ValueError(
+            "Timestamps are not increasing."
+        )
+
+    time_differences = (
+        data["timestamp"]
+        .diff()
+        .dropna()
+    )
+
+    expected_timestep = pd.Timedelta(
+        minutes=timestep_minutes
+    )
+
+    if not (
+        time_differences
+        == expected_timestep
+    ).all():
+        raise ValueError(
+            "Integrated data does not have "
+            "continuous 15-minute intervals."
+        )
+
+    if (
+        data["gCO2/kWh"] < 0
+    ).any():
+        raise ValueError(
+            "Carbon intensity cannot be negative."
+        )
+
+    print(
+        "Integrated market data validation passed."
+    )
 
 
 
@@ -378,7 +459,7 @@ if __name__ == "__main__":
         no_battery_emissions
         - real_market_schedule_real_emissions
     )
-    #gsd.get_multi_day_caiso_prices test
+    #gsd.get_multi_day_caiso_prices test -------------------------------------
     start_date = "2026-08-25"
     number_of_days = 2
 
@@ -388,6 +469,167 @@ if __name__ == "__main__":
             number_of_days,
         )
     )
+
+    multi_day_synthetic_data = (
+        mda.create_multi_day_dataframe(
+            start_date,
+            number_of_days
+        )
+    )
+
+    multi_day_carbon_data = (
+        emd.get_multi_day_carbon_data(
+            str(api_key),
+            "US-CAL-CISO",
+            start_date,
+            number_of_days
+        )
+    )
+
+    multi_day_real_market_data = (
+        merge_real_market_data(
+            multi_day_synthetic_data,
+            multi_day_price_data,
+            multi_day_carbon_data
+        )
+    )
+
+    multi_day_synthetic_optimized = (
+        sda.run_combined_optimization(
+            multi_day_synthetic_data,
+            battery_parameters,
+            carbon_weight,
+            degradation_cost_per_kWh,
+        )
+    )
+
+    multi_day_real_market_optimized = (
+        sda.run_combined_optimization(
+            multi_day_real_market_data,
+            battery_parameters,
+            carbon_weight,
+            degradation_cost_per_kWh,
+        )
+    )
+
+    multi_day_synthetic_real_cost = (
+        calculate_cost_with_external_price(
+            multi_day_synthetic_optimized,
+            multi_day_price_data,
+        )
+    )
+
+    multi_day_real_market_cost = (
+        calculate_cost_with_external_price(
+            multi_day_real_market_optimized,
+            multi_day_price_data,
+        )
+    )
+
+    multi_day_synthetic_real_emissions = (
+        emd.calculate_emissions_with_external_carbon(
+            multi_day_synthetic_optimized,
+            multi_day_carbon_data,
+        )
+    )
+
+    multi_day_real_market_emissions = (
+        emd.calculate_emissions_with_external_carbon(
+            multi_day_real_market_optimized,
+            multi_day_carbon_data,
+        )
+    )
+
+    multi_day_no_battery = (
+        create_no_battery_dispatch(
+            multi_day_real_market_data
+        )
+    )
+
+    multi_day_no_battery_cost = (
+        calculate_cost_with_external_price(
+            multi_day_no_battery,
+            multi_day_price_data,
+        )
+    )
+
+    multi_day_no_battery_emissions = (
+        emd.calculate_emissions_with_external_carbon(
+            multi_day_no_battery,
+            multi_day_carbon_data,
+        )
+    )
+    multi_day_synthetic_usage = (
+    sda.calculate_battery_usage_metrics(
+        multi_day_synthetic_optimized,
+        battery_parameters,
+        )
+    )
+
+    multi_day_real_market_usage = (
+        sda.calculate_battery_usage_metrics(
+        multi_day_real_market_optimized,
+        battery_parameters,
+        )
+    )
+
+    multi_day_dispatch_summary = (
+        create_real_dispatch_summary(
+            multi_day_real_market_optimized,
+            multi_day_real_market_data,
+        )
+    )
+
+    multi_day_active_charging = (
+        multi_day_dispatch_summary.loc[
+            multi_day_dispatch_summary[
+                "battery_charge_kw"
+            ] > 0.01
+        ].copy()
+    )
+
+    multi_day_active_discharging = (
+        multi_day_dispatch_summary.loc[
+            multi_day_dispatch_summary[
+                "battery_discharge_kw"
+            ] > 0.01
+        ].copy()
+    )
+
+    multi_day_weighted_charge_price = (
+        calculate_power_weighted_average(
+            multi_day_active_charging,
+            "price_per_kWh",
+            "battery_charge_kw",
+        )
+    )
+
+    multi_day_weighted_discharge_price = (
+        calculate_power_weighted_average(
+            multi_day_active_discharging,
+            "price_per_kWh",
+            "battery_discharge_kw",
+        )
+    )
+
+    multi_day_weighted_charge_carbon = (
+        calculate_power_weighted_average(
+            multi_day_active_charging,
+            "gCO2/kWh",
+            "battery_charge_kw",
+        )
+    )
+
+    multi_day_weighted_discharge_carbon = (
+        calculate_power_weighted_average(
+            multi_day_active_discharging,
+            "gCO2/kWh",
+            "battery_charge_kw",
+        )
+    )
+
+
+
 
     
 
@@ -577,4 +819,97 @@ if __name__ == "__main__":
         multi_day_price_data.shape,
     )
 
+
+    print(
+    "\n=== Multi-Day Real-Market Data ==="
+)
+
+    print(
+        multi_day_real_market_data.head()
+    )
+
+    print(
+        multi_day_real_market_data.tail()
+    )
+
+    print(
+        "Shape:",
+        multi_day_real_market_data.shape,
+    )
+
+    print(
+        "\n=== 2-Day Real-Market Comparison ==="
+    )
+
+    print(
+        f"No battery: "
+        f"${multi_day_no_battery_cost:.2f}, "
+        f"{multi_day_no_battery_emissions:.2f} kgCO2"
+    )
+
+    print(
+        f"Synthetic-signal schedule: "
+        f"${multi_day_synthetic_real_cost:.2f}, "
+        f"{multi_day_synthetic_real_emissions:.2f} kgCO2"
+    )   
+
+    print(
+        f"Real-market schedule: "
+        f"${multi_day_real_market_cost:.2f}, "
+        f"{multi_day_real_market_emissions:.2f} kgCO2"
+    )
+
+
+    print(
+        "\nSynthetic multi-day battery usage:"
+    )   
+    print(multi_day_synthetic_usage)
+
+    print(
+        "\nReal-market multi-day battery usage:"
+    )
+
+    print(multi_day_real_market_usage)
+
+
+    print(
+    "\n=== 2-Day Power-Weighted Dispatch Signals ==="
+)
+
+    print(
+        "Charging price:",
+        f"${multi_day_weighted_charge_price:.4f}/kWh",
+    )
+
+    print(
+        "Discharging price:",
+        f"${multi_day_weighted_discharge_price:.4f}/kWh",
+    )
+
+    print(
+        "Charging carbon:",
+        f"{multi_day_weighted_charge_carbon:.2f} gCO2/kWh",
+    )
+
+    print(
+        "Discharging carbon:",
+        f"{multi_day_weighted_discharge_carbon:.2f} gCO2/kWh",
+    )
+
+
+    validate_integrated_market_data(
+        multi_day_real_market_data,
+        expected_rows=number_of_days * 96,
+    )
+    
+    sda.validate_dispatch(
+        multi_day_real_market_optimized,
+        battery_parameters,
+    )
+    
+    sda.validate_dispatch(
+        multi_day_synthetic_optimized,
+        battery_parameters
+    )
+    
     
