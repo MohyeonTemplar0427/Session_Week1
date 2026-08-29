@@ -9,6 +9,19 @@ import electricity_maps_data as emd
 import gridstatus_data as gsd
 import multi_day_analysis as mda
 import time
+from battery import Battery
+from config import ExperimentConfig, to_optimizer_parameters
+
+battery = Battery(
+    capacity_kWh = 20.0,
+    SOC_min = 0.1,
+    SOC_max = 0.9,
+    energy_kWh = 10.0,
+    charge_efficiency = 0.95,
+    discharge_efficiency = 0.95,
+    max_charge_kw = 5.0,
+    max_discharge_kw = 5.0,
+)
 
 RUNTIME_FILE = Path("data/runtime.json")
 
@@ -617,25 +630,33 @@ if __name__ == "__main__":
             "Electricity Maps API key not loaded."
         )
 
-    battery_parameters = {
-        "capacity_kWh": 20.0,
-        "initial_soc_kWh": 10.0,
-        "min_soc_kWh": 2.0,
-        "max_soc_kWh": 18.0,
-        "max_charge_kw": 5.0,
-        "max_discharge_kw": 5.0,
-        "charge_efficiency": 0.95,
-        "discharge_efficiency": 0.95,
-    }
+    battery = Battery(
+        capacity_kWh = 20.0,
+        SOC_min = 0.1,
+        SOC_max = 0.9,
+        energy_kWh = 10.0,
+        charge_efficiency = 0.95,
+        discharge_efficiency = 0.95,
+        max_charge_kw = 5.0,
+        max_discharge_kw = 5.0,
+    )
+
+    battery_parameters = to_optimizer_parameters(battery)
+
+    config = ExperimentConfig(
+        start_date="2026-08-25",
+        number_of_days=2,
+    )
+
     ## sleep_second for gridstatus api request
-    test_sleep_seconds = 0
+    test_sleep_seconds = 0.0
 
     previous_runtime = load_previous_runtime()
     start_time = time.perf_counter()
     
     run_multi_day_experiment(
-        start_date="2026-06-08",
-        number_of_days=3,
+        start_date="2026-08-25",
+        number_of_days=2,
         api_key=api_key,
         battery_parameters=battery_parameters,
          carbon_weight=0.20,
@@ -654,3 +675,9 @@ if __name__ == "__main__":
     print(f"Cuerrent runtime with sleep seconds ({test_sleep_seconds}): {run_time:.3f}s.")
 
     save_runtime(run_time)
+
+    print(config)
+    print(config.start_date)
+    print(config.number_of_days)
+    print(config.carbon_weight)
+    print(config.caiso_node)

@@ -141,10 +141,6 @@ def simulate_timestep(
         "SOC_percentage": battery.SOC_percentage(),
         "grid_import": grid_import,
     }
-    
-
-
-
 
 ###This is the main function to run the battery simulation
 if __name__ == "__main__":
