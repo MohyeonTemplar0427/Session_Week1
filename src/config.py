@@ -17,7 +17,7 @@ class ExperimentConfig:
     degradation_cost_per_kWh: float = 0.03
     timestep_hours: float = 0.25
 
-    caiso_node: str = "TH_NP15_GEN-APND0"
+    caiso_node: str = "TH_NP15_GEN-APND"
     electricity_maps_zone: str = "US-CAL-CISO"
 
     timezone: str = "America/Los_Angeles"

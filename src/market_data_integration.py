@@ -38,8 +38,6 @@ CAISO_CACHE_DIR = (
     / "caiso"
 )
 
-RUNTIME_FILE = Path("data/previous_runtime.txt")
-
 print(
     "Loading .env from:",
     env_path
@@ -302,36 +300,31 @@ def validate_integrated_market_data(
 
 ##Running multi-day experiment with input parameters
 def run_multi_day_experiment(
-        start_date: str,
-        number_of_days: int,
+        config: ExperimentConfig,
         api_key: str,
         battery_parameters: dict[str, float],
-        carbon_weight: float,
-        degradation_cost_per_kWh: float,
-        sleep_seconds: float = 5.0
 ) -> None:
-
     multi_day_synthetic_data = (
         mda.create_multi_day_dataframe(
-            start_date,
-            number_of_days,
+            config.start_date,
+            config.number_of_days,
         )
     )
 
     multi_day_price_data = (
         gsd.get_caiso_real_time_prices_range(
-            start_date=start_date,
-            number_of_days=number_of_days,
-            sleep_seconds=sleep_seconds,
+            start_date=config.start_date,
+            number_of_days=config.number_of_days,
+            sleep_seconds=config.sleep_seconds,
         )
     )
 
     multi_day_carbon_data = (
         emd.get_multi_day_carbon_data(
             api_key,
-            "US-CAL-CISO",
-            start_date,
-            number_of_days,
+            config.electricity_maps_zone,
+            config.start_date,
+            config.number_of_days,
         )
     )
 
@@ -347,7 +340,7 @@ def run_multi_day_experiment(
 
     validate_integrated_market_data(
         multi_day_real_market_data,
-        expected_rows = number_of_days * 96
+        expected_rows = config.number_of_days * 96
     )
 
     # 3. Run optimization
@@ -355,8 +348,8 @@ def run_multi_day_experiment(
         sda.run_combined_optimization(
             multi_day_synthetic_data,
             battery_parameters,
-            carbon_weight,
-            degradation_cost_per_kWh,
+            config.carbon_weight,
+            config.degradation_cost_per_kWh,
         )
     )
 
@@ -364,8 +357,8 @@ def run_multi_day_experiment(
         sda.run_combined_optimization(
             multi_day_real_market_data,
             battery_parameters,
-            carbon_weight,
-            degradation_cost_per_kWh,
+            config.carbon_weight,
+            config.degradation_cost_per_kWh,
         )
     )
 
@@ -521,7 +514,7 @@ def run_multi_day_experiment(
     #11. Print Results
 
     print(
-        f"\n=== {number_of_days}-Day "
+        f"\n=== {config.number_of_days}-Day "
         "Real-Market Experiment ==="
     )
 
@@ -642,26 +635,21 @@ if __name__ == "__main__":
     )
 
     battery_parameters = to_optimizer_parameters(battery)
-
+    
+    # Configuration must declare start_date and number_of_days, others are optional
+    # Goto config.py to see all available parameters
     config = ExperimentConfig(
         start_date="2026-08-25",
-        number_of_days=2,
+        number_of_days= 2,
     )
-
-    ## sleep_second for gridstatus api request
-    test_sleep_seconds = 0.0
-
+    
     previous_runtime = load_previous_runtime()
     start_time = time.perf_counter()
     
     run_multi_day_experiment(
-        start_date="2026-08-25",
-        number_of_days=2,
-        api_key=api_key,
-        battery_parameters=battery_parameters,
-         carbon_weight=0.20,
-        degradation_cost_per_kWh=0.03,
-        sleep_seconds=test_sleep_seconds
+        config = config,
+        api_key = api_key,
+        battery_parameters = battery_parameters,
     )
 
     end_time = time.perf_counter()
@@ -672,7 +660,7 @@ if __name__ == "__main__":
             f"Previous runtime: "
             f"{previous_runtime:3f}s"
         )
-    print(f"Cuerrent runtime with sleep seconds ({test_sleep_seconds}): {run_time:.3f}s.")
+    print(f"Current runtime with sleep seconds ({config.sleep_seconds}): {run_time:.3f}s.")
 
     save_runtime(run_time)
 

@@ -2,6 +2,7 @@ import gridstatus
 import pandas as pd
 import time
 from pathlib import Path
+import config
 
 
 LOCAL_TIMEZONE = "America/Los_Angeles"
@@ -65,7 +66,7 @@ def get_caiso_real_time_prices(
         date = date,
         market="REAL_TIME_15_MIN",
         locations=[
-            "TH_NP15_GEN-APND"
+            config.caiso_node
         ],
     )
 
