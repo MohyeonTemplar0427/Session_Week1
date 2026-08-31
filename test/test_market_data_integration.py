@@ -6,7 +6,7 @@ from market_data_integration import (
     calculate_normalized_kpis,
     calculate_sensitivity_metrics,
     calculate_daily_metrics,
-
+    merge_complete_time_series,
 )
 
 def test_calculate_normalized_kpis():
@@ -246,4 +246,48 @@ def test_calculate_daily_metrics():
         0,
         "degradation_cost"
     ] == pytest.approx(0.045)
+
+
+
+def test_merge_complete_time_series_rejects_duplicate_timestamps():
+    timestamp = pd.Timestamp(
+        "2026-08-25 00:00",
+        tz="America/Los_Angeles",
+    )
+
+    left_data = pd.DataFrame(
+        {
+            "timestamp": [
+                timestamp,
+                timestamp + pd.Timedelta(minutes=15),
+            ],
+            "load_kw": [
+                4.0,
+                5.0,
+            ],
+        }
+    )
+
+    right_data = pd.DataFrame(
+        {
+            "timestamp": [
+                timestamp,
+                timestamp,
+            ],
+            "price_per_kWh": [
+                0.10,
+                0.20,
+            ],
+        }
+    )
+
+    with pytest.raises(
+        ValueError,
+        match="Price merge requires unique timestamps",
+    ):
+        merge_complete_time_series(
+            left_data,
+            right_data,
+            right_name="Price",
+        )
 
