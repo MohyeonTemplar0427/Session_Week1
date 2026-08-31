@@ -3,6 +3,7 @@ import os
 import pandas as pd
 import single_day_analysis as sda
 from dotenv import load_dotenv
+from timeseries_validation import merge_complete_time_series
 
 load_dotenv()
 
@@ -174,16 +175,17 @@ def calculate_emissions_with_external_carbon(
         timestep_hours: float = 0.25,
 ) -> float:
 
-    evaluation_data = pd.merge(
-        dispatch_data[
-            [
-                "timestamp",
-                "grid_import_kw",
-            ]
-        ],
+    dispatch_intervals = dispatch_data[
+        [
+            "timestamp",
+        "grid_import_kw",
+        ]
+    ].copy()
+
+    evaluation_data = merge_complete_time_series(
+        dispatch_intervals,
         carbon_data,
-        on="timestamp",
-        how="inner",
+        right_name="Carbon"
     )
 
     emissions_kgCO2 = (

@@ -13,8 +13,12 @@ from market_data_integration import (
     validate_integrated_market_data,
 )
 
-from timeseries_validation import merge_complete_time_series
+from electricity_maps_data import (
+    calculate_emissions_with_external_carbon,
+)
 
+
+#Function Implementation ------------------------------------------------
 def test_calculate_normalized_kpis():
 
     result = ExperimentResult(
@@ -605,3 +609,92 @@ def test_validate_integrated_market_data_rejects_nonnumeric_value():
             data,
             expected_rows=2,
         )
+
+def test_emissions_reject_incomplete_carbon_coverage():
+    timestamps = pd.date_range(
+        start="2026-08-25 00:00",
+        periods=3,
+        freq="15min",
+        tz="America/Los_Angeles",
+    )
+
+    dispatch_data = pd.DataFrame(
+        {
+            "timestamp": timestamps,
+            "grid_import_kw": [
+                4.0,
+                4.0,
+                4.0,
+            ],
+        }
+    )
+
+    carbon_data = pd.DataFrame(
+        {
+            "timestamp": timestamps[:2],
+            "gCO2/kWh": [
+                100.0,
+                200.0,
+            ],
+        }
+    )
+
+    with pytest.raises(
+        ValueError,
+        match="Carbon data does not cover exactly the same timestamps",
+    ):
+        calculate_emissions_with_external_carbon(
+            dispatch_data,
+            carbon_data,
+            timestep_hours=0.25,
+        )
+
+def test_validate_integrated_market_data_accepts_valid_data():
+    timestamps = pd.date_range(
+        start="2026-08-25 00:00",
+        periods=4,
+        freq="15min",
+        tz="America/Los_Angeles",
+    )
+
+    data = pd.DataFrame(
+        {
+            "timestamp": timestamps,
+            "load_kw": [
+                5.0,
+                6.0,
+                7.0,
+                6.0,
+            ],
+            "pv_kw": [
+                0.0,
+                1.0,
+                2.0,
+                1.0,
+            ],
+            "net_load_kw": [
+                5.0,
+                5.0,
+                5.0,
+                5.0,
+            ],
+            "price_per_kWh": [
+                0.10,
+                0.20,
+                -0.01,
+                0.30,
+            ],
+            "gCO2/kWh": [
+                100.0,
+                200.0,
+                300.0,
+                400.0,
+            ],
+        }
+    )
+
+    validate_integrated_market_data(
+        data,
+        expected_rows=4,
+        timestep_minutes=15,
+    )
