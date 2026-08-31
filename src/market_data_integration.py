@@ -12,6 +12,8 @@ import time
 from battery import Battery
 from config import ExperimentConfig, to_optimizer_parameters
 from results import ExperimentResult
+from experiment_data import ExperimentData
+from dataclasses import replace
 
 battery = Battery(
     capacity_kWh = 20.0,
@@ -302,53 +304,26 @@ def validate_integrated_market_data(
 ##Running multi-day experiment with input parameters
 def run_multi_day_experiment(
         config: ExperimentConfig,
-        api_key: str,
+        data: ExperimentData,
         battery_parameters: dict[str, float],
 ) -> ExperimentResult:
 
-    multi_day_synthetic_data = (
-        mda.create_multi_day_dataframe(
-            config.start_date,
-            config.number_of_days,
-        )
-    )
-
-    multi_day_price_data = (
-        gsd.get_caiso_real_time_prices_range(
-            start_date=config.start_date,
-            number_of_days=config.number_of_days,
-            sleep_seconds=config.sleep_seconds,
-        )
-    )
-
-    multi_day_carbon_data = (
-        emd.get_multi_day_carbon_data(
-            api_key,
-            config.electricity_maps_zone,
-            config.start_date,
-            config.number_of_days,
-        )
-    )
-
-    multi_day_real_market_data = (
-        merge_real_market_data(
-            multi_day_synthetic_data,
-            multi_day_price_data,
-            multi_day_carbon_data,
-        )
-    )
+    synthetic_data = data.synthetic_data
+    price_data = data.price_data
+    carbon_data = data.carbon_data
+    real_market_data = data.real_market_data
 
     ## 2. Validate Integrated input data
 
     validate_integrated_market_data(
-        multi_day_real_market_data,
-        expected_rows = config.number_of_days * 96
+        real_market_data,
+        expected_rows=config.number_of_days * 96,
     )
 
     # 3. Run optimization
     synthetic_optimized = (
         sda.run_combined_optimization(
-            multi_day_synthetic_data,
+            synthetic_data,
             battery_parameters,
             config.carbon_weight,
             config.degradation_cost_per_kWh,
@@ -357,7 +332,7 @@ def run_multi_day_experiment(
 
     real_market_optimized = (
         sda.run_combined_optimization(
-            multi_day_real_market_data,
+            real_market_data,
             battery_parameters,
             config.carbon_weight,
             config.degradation_cost_per_kWh,
@@ -368,7 +343,7 @@ def run_multi_day_experiment(
 
     sda.validate_dispatch(
         synthetic_optimized,
-        battery_parameters
+        battery_parameters,
     )
 
     sda.validate_dispatch(
@@ -380,7 +355,7 @@ def run_multi_day_experiment(
 
     no_battery_dispatch = (
         create_no_battery_dispatch(
-            multi_day_real_market_data
+            real_market_data,
         )
     )
 
@@ -389,44 +364,44 @@ def run_multi_day_experiment(
     no_battery_cost = (
         calculate_cost_with_external_price(
             no_battery_dispatch,
-            multi_day_price_data,
+            price_data,
         )
     )
 
     synthetic_real_cost = (
         calculate_cost_with_external_price(
             synthetic_optimized,
-            multi_day_price_data,
+            price_data,
         )
     )
 
     real_market_cost = (
         calculate_cost_with_external_price(
             real_market_optimized,
-            multi_day_price_data,
+            price_data,
         )
     )
 
     #7. Evaluate emissions using Real carbon data
 
-    no_battery_emissions =(
+    no_battery_emissions = (
         emd.calculate_emissions_with_external_carbon(
             no_battery_dispatch,
-            multi_day_carbon_data,
+            carbon_data,
         )
     )
 
     synthetic_real_emissions = (
         emd.calculate_emissions_with_external_carbon(
             synthetic_optimized,
-            multi_day_carbon_data,
+            carbon_data,
         )
     )
 
     real_market_emissions = (
         emd.calculate_emissions_with_external_carbon(
             real_market_optimized,
-            multi_day_carbon_data,
+            carbon_data,
         )
     )
 
@@ -446,11 +421,21 @@ def run_multi_day_experiment(
         )
     )
 
+    real_market_degradation_cost = (
+        real_market_usage["throughput_kWh"]
+        * config.degradation_cost_per_kWh
+    )
+
+    real_market_total_operating_cost = (
+        real_market_cost
+        + real_market_degradation_cost
+    )
+
     #9. Analyze real-market dispatch
     dispatch_summary = (
         create_real_dispatch_summary(
             real_market_optimized,
-            multi_day_real_market_data,
+            real_market_data,
         )
     )
 
@@ -508,9 +493,22 @@ def run_multi_day_experiment(
         - real_market_cost
     )
 
+    operating_cost_savings = (
+        no_battery_cost
+        - real_market_total_operating_cost
+    )
+
     emissions_reduction = (
         no_battery_emissions
         - real_market_emissions
+    )
+
+    daily_summary = calculate_daily_metrics(
+        data=real_market_optimized,
+        degradation_cost_per_kWh=(
+            config.degradation_cost_per_kWh
+        ),
+        timestep_hours=config.timestep_hours,
     )
 
     #11. Print Results
@@ -613,6 +611,17 @@ def run_multi_day_experiment(
         "\nMulti-day experiment completed."
     )
 
+    print(
+        "\n=== Daily Performance ==="
+    ) 
+
+    print(
+        daily_summary.to_string(
+            index=False
+        )
+    )
+
+
     return ExperimentResult(
         no_battery_cost=float(
             no_battery_cost
@@ -657,13 +666,27 @@ def run_multi_day_experiment(
             weighted_discharge_price
         ),
 
-        weighted_charge_carbon=float(
+        weighted_charge_carbon = float(
             weighted_charge_carbon
         ),
 
-        weighted_discharge_carbon=float(
+        weighted_discharge_carbon = float(
             weighted_discharge_carbon
         ),
+
+        real_market_degradation_cost = float(
+            real_market_degradation_cost
+        ),
+
+        real_market_total_operating_cost = float(
+            real_market_total_operating_cost
+        ),
+
+        operating_cost_savings = float(
+            operating_cost_savings
+        ),
+
+        daily_summary = daily_summary,
     )
 
 def experiment_result_to_dict(
@@ -687,11 +710,192 @@ def experiment_result_to_dict(
 
         "battery_throughput_kWh": result.real_market_usage["throughput_kWh"],
 
-        "equivalent_full_cycles": result.real_market_usage["equivalent_full_cycles"],   
+        "equivalent_full_cycles": result.real_market_usage["equivalent_full_cycles"],
+
+        "degradation_cost": result.real_market_degradation_cost,
+
+        "total_operating_cost": result.real_market_total_operating_cost,
+
+        "operating_cost_savings": result.operating_cost_savings,
     }
 
+def prepare_experiment_data(
+    config: ExperimentConfig,
+    api_key: str,
+) -> ExperimentData:
+
+    synthetic_data = (
+        mda.create_multi_day_dataframe(
+            config.start_date,
+            config.number_of_days,
+        )
+    )
+
+    price_data = (
+        gsd.get_caiso_real_time_prices_range(
+            start_date=config.start_date,
+            number_of_days=config.number_of_days,
+            sleep_seconds=config.sleep_seconds,
+        )
+    )
+
+    carbon_data = (
+        emd.get_multi_day_carbon_data(
+            api_key,
+            config.electricity_maps_zone,
+            config.start_date,
+            config.number_of_days,
+        )
+    )
+
+    real_market_data = (
+        merge_real_market_data(
+            synthetic_data,
+            price_data,
+            carbon_data,
+        )
+    )
+
+    validate_integrated_market_data(
+        real_market_data,
+        expected_rows=(
+            config.number_of_days * 96
+        ),
+    )
+
+    return ExperimentData(
+        synthetic_data = synthetic_data,
+        price_data=price_data,
+        carbon_data=carbon_data,
+        real_market_data=real_market_data,
+    )
 
 
+def calculate_daily_metrics(
+        data:pd.DataFrame,
+        degradation_cost_per_kWh: float,
+        timestep_hours: float = 0.25,
+) -> pd.DataFrame:
+
+    daily_data = data.copy()
+
+    daily_data["date"] = (
+        daily_data["timestamp"].dt.date
+    )
+
+    daily_data["grid_import_kWh"] = (
+        daily_data["grid_import_kw"]
+        * timestep_hours
+    )
+
+    daily_data["grid_cost"] = (
+        daily_data["grid_import_kw"]
+        * timestep_hours
+        * daily_data["price_per_kWh"]
+    )
+
+    daily_data["emissions_kgCO2"] = (
+        daily_data["grid_import_kw"]
+        * timestep_hours
+        * daily_data["gCO2/kWh"]
+        / 1000
+    )
+
+    daily_data["battery_charge_kWh"] = (
+        daily_data["battery_charge_kw"]
+        * timestep_hours
+    )
+
+    daily_data["battery_discharge_kWh"] = (
+        daily_data["battery_discharge_kw"]
+        * timestep_hours
+    )
+
+    daily_summary = (
+        daily_data
+        .groupby("date")
+        .agg(
+            grid_import_kWh = (
+                "grid_import_kWh",
+                "sum",
+            ),
+            grid_cost = (
+                "grid_cost",
+                "sum",
+            ),
+            emissions_kgCO2=(
+                "emissions_kgCO2",
+                "sum",
+            ),
+            charge_kWh=(
+                "battery_charge_kWh",
+                "sum"
+            ),
+            discharge_kWh=(
+                "battery_discharge_kWh",
+                "sum",
+            ),
+        ).reset_index()
+    )
+
+    daily_summary["throughput_kWh"] = (
+        daily_summary["charge_kWh"]
+        + daily_summary["discharge_kWh"]
+    )
+
+    daily_summary["degradation_cost"] = (
+        daily_summary["throughput_kWh"]
+        * degradation_cost_per_kWh
+    )
+
+    return daily_summary
+
+
+def calculate_normalized_kpis(
+    result: ExperimentResult,
+    number_of_days: int,
+) -> dict[str, float]:
+
+    cost_savings_percentage = (
+        result.operating_cost_savings
+        / result.no_battery_cost
+        * 100
+    )
+
+    emissions_reduction_percentage = (
+        result.emissions_reduction
+        / result.no_battery_emissions
+        * 100
+    )
+
+    average_daily_cost_savings = (
+        result.operating_cost_savings
+        / number_of_days
+    )
+
+    average_daily_emissions_reduction = (
+        result.emissions_reduction
+        / number_of_days
+    )
+
+    equivalent_full_cycles_per_day = (
+        result.real_market_usage[
+            "equivalent_full_cycles"
+        ]
+        / number_of_days
+    )
+
+    return {
+        "cost_savings_percentage": cost_savings_percentage,
+        "emissions_reduction_percentage": emissions_reduction_percentage,
+        "average_daily_cost_savings": average_daily_cost_savings,
+        "average_daily_emissions_reduction": average_daily_emissions_reduction,
+        "equivalent_full_cycles_per_day": equivalent_full_cycles_per_day,
+    }
+
+    
+
+    
 # Main--------------------------------------------------------------------------------------------
 if __name__ == "__main__":
 
@@ -715,27 +919,80 @@ if __name__ == "__main__":
     
     # Configuration must declare start_date and number_of_days, others are optional
     # Goto config.py to see all available parameters
-    config = ExperimentConfig(
+    baseline_config = ExperimentConfig(
         start_date="2026-08-25",
         number_of_days = 2,
+    )
+
+    ##replace carbon_weight from baseline_config
+    high_carbon_config = replace(
+        baseline_config,
+        carbon_weight = 0.50,
     )
     
     previous_runtime = load_previous_runtime()
     start_time = time.perf_counter()
-    
-    result0 = run_multi_day_experiment(
-        config=config,
+
+    experiment_data = prepare_experiment_data(
+        config=baseline_config,
         api_key=api_key,
-        battery_parameters=battery_parameters,
     )
 
-    result_summary = experiment_result_to_dict(
+    #list for creating multiple carbon_weights cases
+    carbon_weights = [
+        0.00,
+        0.20,
+        0.50,
+    ]
+    #list for storing experiment result summaries
+    experiment_summaries = []
+
+    for carbon_weight in carbon_weights:
+
+        current_config = replace(
+            baseline_config,
+            carbon_weight = carbon_weight,
+        )
+
+        result = run_multi_day_experiment(
+            config = current_config,
+            data=experiment_data,
+            battery_parameters=battery_parameters,
+        )
+
+        summary = experiment_result_to_dict(
+            experiment_name=(
+                f"Carbon weight {carbon_weight}"
+            ),
+            result=result,
+        )
+
+        experiment_summaries.append(
+            summary
+        )
+
+    result0 = run_multi_day_experiment(
+        config=baseline_config,
+        data=experiment_data,
+        battery_parameters=battery_parameters
+    )
+
+    result_summary0 = experiment_result_to_dict(
         "Baseline",
         result0,
     )
 
     summary_table = pd.DataFrame(
-        [result_summary],
+        [result_summary0],
+    )
+
+    comparison_table = pd.DataFrame(
+        experiment_summaries
+    )
+
+    kpis = calculate_normalized_kpis(
+        result = result0,
+        number_of_days = baseline_config.number_of_days
     )
 
 
@@ -747,15 +1004,9 @@ if __name__ == "__main__":
             f"Previous runtime: "
             f"{previous_runtime:3f}s"
         )
-    print(f"Current runtime with sleep seconds ({config.sleep_seconds}): {run_time:.3f}s.")
+    #print(f"Current runtime with sleep seconds ({config.sleep_seconds}): {run_time:.3f}s.")
 
     save_runtime(run_time)
-
-    print(config)
-    print(config.start_date)
-    print(config.number_of_days)
-    print(config.carbon_weight)
-    print(config.caiso_node)
 
     print(
         f"\nReal-market cost: ${result0.real_market_cost:.2f}"
@@ -770,7 +1021,7 @@ if __name__ == "__main__":
     )
 
     print(
-        f"\n\n{result_summary}"
+        f"\n\n{result_summary0}"
     )
 
     print(
@@ -778,3 +1029,15 @@ if __name__ == "__main__":
             index = False,
         )
     )
+
+    print(
+        "\n=== Carbon Weight Comparison ==="
+    )
+
+    print(
+        comparison_table.to_string(
+            index = False
+        )
+    )
+
+    print(kpis)

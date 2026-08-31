@@ -1,4 +1,5 @@
 from dataclasses import dataclass
+import pandas as pd
 
 @dataclass
 class ExperimentResult:
@@ -14,6 +15,13 @@ class ExperimentResult:
     cost_savings: float
     emissions_reduction: float
 
+    real_market_degradation_cost: float
+    real_market_total_operating_cost: float
+    operating_cost_savings: float
+
+
+
+
     synthetic_usage: dict[str, float]
     real_market_usage: dict[str, float]
 
@@ -22,3 +30,5 @@ class ExperimentResult:
 
     weighted_charge_carbon: float
     weighted_discharge_carbon: float
+
+    daily_summary: pd.DataFrame
