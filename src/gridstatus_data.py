@@ -2,12 +2,8 @@ import gridstatus
 import pandas as pd
 import time
 from pathlib import Path
-import config
-
 
 LOCAL_TIMEZONE = "America/Los_Angeles"
-
-caiso = gridstatus.CAISO()
 
 PROJECT_ROOT = (
     Path(__file__).resolve().parents[1]
@@ -21,6 +17,7 @@ CAISO_CACHE_DIR = (
 )
 
 def measure_average_query_time(
+    location: str = "TH_NP15_GEN-APND",
     number_of_runs: int = 5,
 ) -> float:
 
@@ -31,8 +28,10 @@ def measure_average_query_time(
         start_time = time.perf_counter()
 
         get_caiso_real_time_prices(
-            "2026-08-26"
+            "2026-08-26",
+            location= location,
         )
+
 
         end_time = time.perf_counter()
 
@@ -58,6 +57,7 @@ def measure_average_query_time(
 ## Fetch caiso real time price data from gridstatus
 def get_caiso_real_time_prices(
         date:str,
+        location: str,
 ) -> pd.DataFrame:
 
     caiso = gridstatus.CAISO()
@@ -66,7 +66,7 @@ def get_caiso_real_time_prices(
         date = date,
         market="REAL_TIME_15_MIN",
         locations=[
-            config.caiso_node
+            location
         ],
     )
 
@@ -75,7 +75,8 @@ def get_caiso_real_time_prices(
 def get_caiso_real_time_prices_range(
         start_date: str,
         number_of_days: int,
-        sleep_seconds: float = 5.0
+        location: str,
+        sleep_seconds: float = 1.0
 ) -> pd.DataFrame:
 
     caiso = gridstatus.CAISO()
@@ -96,7 +97,7 @@ def get_caiso_real_time_prices_range(
         end=end_timestamp,
         market=gridstatus.Markets.REAL_TIME_15_MIN,
         locations=[
-             "TH_NP15_GEN-APND"
+            location
         ],
         sleep = sleep_seconds,
     )
@@ -244,12 +245,13 @@ def validate_price_data(
 # Caching function used to improve runtime
 def load_or_fetch_caiso_prices(
         date: str,
+        location:str,
         force_refresh: bool = False,
 ) -> pd.DataFrame:
 
     cache_file = (
         CAISO_CACHE_DIR
-        / f"caiso_np165_{date}.csv"
+        / f"caiso_np15_{date}.csv"
     )
 
     if (
@@ -288,7 +290,8 @@ def load_or_fetch_caiso_prices(
 
     raw_data = (
         get_caiso_real_time_prices(
-            date
+            date=date,
+            location=location,
         )
     )
 
@@ -325,6 +328,7 @@ def load_or_fetch_caiso_prices(
 def get_multi_day_caiso_prices(
         start_date: str,
         number_of_days: int,
+        location: str
 ) ->pd.DataFrame:
 
     daily_dataframes = []
@@ -353,6 +357,7 @@ def get_multi_day_caiso_prices(
         price_data = (
             load_or_fetch_caiso_prices(
                 date_string,
+                location=location,
                 force_refresh=False,
             )
         )
@@ -383,9 +388,12 @@ if __name__ == "__main__":
 
     start_time = time.perf_counter()
 
+    test_location = "TH_NP15_GEN-APND"
+
     raw_price_data = (
         get_caiso_real_time_prices(
-            "2026-08-26"
+            "2026-08-26",
+            location=test_location,
         )
     )
 
