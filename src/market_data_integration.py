@@ -432,7 +432,42 @@ def run_multi_day_experiment(
                 f"Dispatch validation failed for {scenario_name}"
             ) from error
 
-        
+
+    scenario_metrics: dict[
+        str,
+        dict[str, float],
+    ] = {}
+
+    for (
+        scenario_name,
+        optimized_data,
+    ) in optimized_scenarios.items():
+
+        evaluated_cost =(
+            calculate_cost_with_external_price(
+                optimized_data,
+                price_data,
+                timestep_hours=config.timestep_hours,
+            )
+        )
+
+        evaluated_emissions = (
+            emd.calculate_emissions_with_external_carbon(
+                optimized_data,
+                carbon_data,
+                timestep_hours=config.timestep_hours,
+            )
+        )
+
+        scenario_metrics[scenario_name] = {
+            "cost": float(evaluated_cost),
+            "emissions_kgCO2": float(
+                evaluated_emissions
+            ),
+        }
+
+
+
     #5. No-battery baseline
 
     no_battery_dispatch = (
@@ -489,6 +524,13 @@ def run_multi_day_experiment(
             carbon_data,
         )
     )
+
+    scenario_metrics["no_battery"] = {
+        "cost": float(no_battery_cost),
+        "emissions_kgCO2": float(
+            no_battery_emissions
+        ),
+    }
 
     # 8. Battery Usage
 
@@ -664,6 +706,8 @@ def run_multi_day_experiment(
         ),
 
         daily_summary = daily_summary,
+
+        scenario_metrics=scenario_metrics,
     )
 
 def prepare_experiment_data(
@@ -840,6 +884,46 @@ def calculate_normalized_kpis(
         "average_daily_emissions_reduction": average_daily_emissions_reduction,
         "equivalent_full_cycles_per_day": equivalent_full_cycles_per_day,
     }
+
+def create_scenario_comparison_table(
+        result: ExperimentResult,
+) -> pd.DataFrame:
+    """Create a common-baseline comparison for all signal scenarios"""
+
+    if "no_battery" not in result.scenario_metrics:
+        raise ValueError(
+            "Scenario metrics must include a no_battery baseline."
+        )
+
+    comparison = (
+        pd.DataFrame.from_dict(
+            result.scenario_metrics,
+            orient="index"
+        )
+        .rename_axis("scenarios")
+        .reset_index()
+    )
+
+    baseline = (
+        comparison.loc[
+            comparison["scenario"]
+            == "no_battery"
+        ]
+        .iloc[0]
+    )
+
+    comparison["cost_savings"] = (
+        baseline["cost"]
+        - comparison["cost"]
+    )
+
+    comparison["emissions_reduction_kgCO2"] = (
+        baseline["emissions_kgCO2"]
+        - comparison["emissions_kgCO2"]
+    )
+
+    return comparison
+    
 
 def experiment_result_to_dict(
         experiment_name: str,
