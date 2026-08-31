@@ -11,6 +11,7 @@ from market_data_integration import (
     calculate_cost_with_external_price,
     create_real_dispatch_summary,
     validate_integrated_market_data,
+    create_market_signal_scenarios
 )
 
 from electricity_maps_data import (
@@ -697,4 +698,81 @@ def test_validate_integrated_market_data_accepts_valid_data():
         data,
         expected_rows=4,
         timestep_minutes=15,
+    )
+
+
+def test_market_signal_scenarios_isolate_price_and_carbon():
+    timestamps = pd.date_range(
+        start="2026-08-25 00:00",
+        periods=2,
+        freq="15min",
+        tz="America/Los_Angeles",
+    )
+
+    synthetic_data = pd.DataFrame(
+        {
+            "timestamp": timestamps,
+            "load_kw": [5.0, 6.0],
+            "pv_kw": [1.0, 2.0],
+            "net_load_kw": [4.0, 4.0],
+            "price_per_kWh": [0.10, 0.11],
+            "gCO2/kWh": [500.0, 510.0],
+        }
+    )
+
+    price_data = pd.DataFrame(
+        {
+            "timestamp": timestamps,
+            "price_per_kWh": [0.20, 0.30],
+        }
+    )
+
+    carbon_data = pd.DataFrame(
+        {
+            "timestamp": timestamps,
+            "gCO2/kWh": [100.0, 200.0],
+        }
+    )
+
+    scenarios = create_market_signal_scenarios(
+        synthetic_data,
+        price_data,
+        carbon_data,
+    )
+
+    assert set(scenarios) == {
+        "synthetic",
+        "real_price",
+        "real_carbon",
+        "combined_real",
+    }
+
+    pd.testing.assert_series_equal(
+        scenarios["real_price"]["price_per_kWh"],
+        price_data["price_per_kWh"],
+    )
+
+    pd.testing.assert_series_equal(
+        scenarios["real_price"]["gCO2/kWh"],
+        synthetic_data["gCO2/kWh"],
+    )
+
+    pd.testing.assert_series_equal(
+        scenarios["real_carbon"]["price_per_kWh"],
+        synthetic_data["price_per_kWh"],
+    )
+
+    pd.testing.assert_series_equal(
+        scenarios["real_carbon"]["gCO2/kWh"],
+        carbon_data["gCO2/kWh"],
+    )
+
+    pd.testing.assert_series_equal(
+        scenarios["combined_real"]["price_per_kWh"],
+        price_data["price_per_kWh"],
+    )
+
+    pd.testing.assert_series_equal(
+        scenarios["combined_real"]["gCO2/kWh"],
+        carbon_data["gCO2/kWh"],
     )

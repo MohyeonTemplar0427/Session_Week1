@@ -1,4 +1,4 @@
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 import pandas as pd
 
 @dataclass
@@ -19,9 +19,6 @@ class ExperimentResult:
     real_market_total_operating_cost: float
     operating_cost_savings: float
 
-
-
-
     synthetic_usage: dict[str, float]
     real_market_usage: dict[str, float]
 
@@ -32,3 +29,8 @@ class ExperimentResult:
     weighted_discharge_carbon: float
 
     daily_summary: pd.DataFrame
+
+    scenario_metrics: dict[
+        str,
+        dict[str, float],
+    ] = field(default_factory = dict)

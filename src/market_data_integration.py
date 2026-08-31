@@ -97,6 +97,52 @@ def merge_real_market_data(
 
     return merged_data
 
+def create_market_signal_scenarios(
+    synthetic_data: pd.DataFrame,
+    price_data: pd.DataFrame,
+    carbon_data: pd.DataFrame,
+) -> dict[str, pd.DataFrame]:
+    """
+    Create scenarios that isolate real price and carbon signals.
+    """
+
+    synthetic_scenario = synthetic_data.copy()
+
+    real_price_scenario = (
+        merge_complete_time_series(
+            synthetic_data.drop(
+                columns=["price_per_kWh"]
+            ),
+            price_data,
+            right_name="Price",
+        )
+    )
+
+    real_carbon_scenario = (
+        merge_complete_time_series(
+            synthetic_data.drop(
+                columns=["gCO2/kWh"]
+            ),
+            carbon_data,
+            right_name="Carbon"
+            )
+        )
+    combined_real_scenario = (
+        merge_real_market_data(
+            synthetic_data,
+            price_data,
+            carbon_data,
+        )
+    )
+
+    return {
+        "synthetic": synthetic_scenario,
+        "real_price": real_price_scenario,
+        "real_carbon": real_carbon_scenario,
+        "combined_real": combined_real_scenario,
+    }
+
+
 def calculate_cost_with_external_price(
         dispatch_data: pd.DataFrame,
         price_data: pd.DataFrame,
@@ -340,36 +386,53 @@ def run_multi_day_experiment(
     real_market_data = data.real_market_data
 
     # 3. Run optimization
-    synthetic_optimized = (
-        sda.run_combined_optimization(
-            synthetic_data,
+    scenarios = create_market_signal_scenarios(
+        synthetic_data,
+        price_data,
+        carbon_data,
+    )
+
+    optimized_scenarios = {
+        scenario_name: sda.run_combined_optimization(
+            scenario_data,
             battery_parameters,
-            config.carbon_weight,
-            config.degradation_cost_per_kWh,
+            carbon_weight = config.carbon_weight,
+            degradation_cost_per_kWh = config.degradation_cost_per_kWh,
         )
+        for scenario_name, scenario_data
+        in scenarios.items()
+    }
+
+    synthetic_optimized = (
+        optimized_scenarios["synthetic"]
+    )
+
+    real_price_optimized = (
+        optimized_scenarios["real_price"]
+    )
+
+    real_carbon_optimized = (
+        optimized_scenarios["real_carbon"]
     )
 
     real_market_optimized = (
-        sda.run_combined_optimization(
-            real_market_data,
-            battery_parameters,
-            config.carbon_weight,
-            config.degradation_cost_per_kWh,
-        )
+        optimized_scenarios["combined_real"]
     )
-
     #4. Validate Optimized Dispatch
+    for scenario_name, optimized_data in (
+        optimized_scenarios.items()
+    ):
+        try:
+            sda.validate_dispatch(
+                optimized_data,
+                battery_parameters,
+            )
+        except ValueError as error:
+            raise ValueError(
+                f"Dispatch validation failed for {scenario_name}"
+            ) from error
 
-    sda.validate_dispatch(
-        synthetic_optimized,
-        battery_parameters,
-    )
-
-    sda.validate_dispatch(
-        real_market_optimized,
-        battery_parameters,
-    )
-
+        
     #5. No-battery baseline
 
     no_battery_dispatch = (
@@ -895,6 +958,8 @@ def calculate_sensitivity_metrics(
     )
 
     return analysis
+
+
     
 # Main--------------------------------------------------------------------------------------------
 def main() -> None:
