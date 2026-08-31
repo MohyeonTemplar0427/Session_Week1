@@ -291,3 +291,45 @@ def test_merge_complete_time_series_rejects_duplicate_timestamps():
             right_name="Price",
         )
 
+
+
+
+def test_merge_complete_time_series_rejects_missing_interval():
+    timestamps = pd.date_range(
+        start="2026-08-25 00:00",
+        periods=3,
+        freq="15min",
+        tz="America/Los_Angeles",
+    )
+
+    left_data = pd.DataFrame(
+        {
+            "timestamp": timestamps,
+            "load_kw": [
+                4.0,
+                5.0,
+                6.0,
+            ],
+        }
+    )
+
+    right_data = pd.DataFrame(
+        {
+            "timestamp": timestamps[:2],
+            "price_per_kWh": [
+                0.10,
+                0.20,
+            ],
+        }
+    )
+
+    with pytest.raises(
+        ValueError,
+        match="does not cover exactly the same timestamps",
+    ):
+        merge_complete_time_series(
+            left_data,
+            right_data,
+            right_name="Price",
+        )
+
