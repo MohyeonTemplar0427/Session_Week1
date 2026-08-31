@@ -83,15 +83,13 @@ def merge_real_market_data(
     merged_data = pd.merge(
         base_data,
         price_data,
-        on="timestamp",
-        how="inner",
+        right_name="Price",
     )
 
     merged_data = pd.merge(
         merged_data,
         carbon_data,
-        on="timestamp",
-        how="inner",
+        right_name="Carbon"
     )
 
     if len(merged_data) != len(
@@ -898,7 +896,8 @@ def merge_complete_time_series(
         or len(merged_data) != len(right_data)
     ):
         raise ValueError(
-            f"{right_name} data does not cover exacly the same timestamps as the existing time series."
+            f"{right_name} data does not cover exactly the same "
+            "timestamps as the existing time series."
         )
 
     return merged_data
