@@ -1,5 +1,6 @@
 import os
 import pandas as pd
+import numpy as np
 from pathlib import Path
 import json
 from dotenv import load_dotenv, find_dotenv
@@ -80,22 +81,17 @@ def merge_real_market_data(
         ]
     )
 
-    merged_data = pd.merge(
+    merged_data = merge_complete_time_series(
         base_data,
         price_data,
         right_name="Price",
     )
 
-    merged_data = pd.merge(
+    merged_data = merge_complete_time_series(
         merged_data,
         carbon_data,
         right_name="Carbon"
     )
-
-    if len(merged_data) != len(
-        synthetic_data
-    ):
-        raise ValueError("Timestamp mismatch caused rows to be lost during merge.")
 
     return merged_data
 
@@ -105,16 +101,17 @@ def calculate_cost_with_external_price(
         timestep_hours: float = 0.25,
 ) -> float:
 
-    merged_data = pd.merge(
-        dispatch_data[
-            [
-                "timestamp",
-                "grid_import_kw",
+    dispatch_intervals = dispatch_data[[
+            "timestamp",
+            "grid_import_kw",
             ]
-        ],
+        ].copy()
+
+
+    merged_data = merge_complete_time_series(
+        dispatch_intervals,
         price_data,
-        on="timestamp",
-        how="inner",
+        right_name="Price",
     )
     cost = (
         merged_data["grid_import_kw"]
@@ -147,17 +144,11 @@ def create_real_dispatch_summary(
         ]
     ].copy()
 
-    summary = pd.merge(
-        market_signals,
+    summary = merge_complete_time_series(
         dispatch,
-        on = "timestamp",
-        how = "inner",
+        market_signals,
+        right_name = "Market signal"
     )
-
-    if len(summary) != len(dispatch_data):
-        raise ValueError(
-            "Timestamp mismatch during dispatch-summary merge."
-        )
 
     return summary
 
@@ -212,6 +203,7 @@ def validate_integrated_market_data(
     data: pd.DataFrame,
     expected_rows: int,
     timestep_minutes: int = 15,
+    expected_timezone: str = "America/Los_Angeles",
 ) -> None:
 
     required_columns = {
@@ -231,6 +223,53 @@ def validate_integrated_market_data(
     if missing_columns:
         raise ValueError(
             f"Missing required columns: {missing_columns}"
+        )
+
+    numeric_columns = [
+        "load_kw",
+        "pv_kw",
+        "net_load_kw",
+        "price_per_kWh",
+        "gCO2/kWh",
+    ]
+
+    try:
+        numeric_data = data[
+            numeric_columns
+        ].apply(
+            pd.to_numeric,
+            errors="raise",
+        )
+    except (TypeError, ValueError) as error:
+        raise ValueError(
+            "Integrated market data contains "
+            "nonnumeric values."
+        ) from error
+
+    if not np.isfinite(
+        numeric_data.to_numpy(dtype=float)
+    ).all():
+        raise ValueError(
+            "Integrated market data contains "
+            "non-finite numeric values."
+        )
+
+    timestamps = data["timestamp"]
+
+    if not pd.api.types.is_datetime64_any_dtype(
+        timestamps
+    ):
+        raise ValueError("Timestamp column must use a pandas datetime dtype.")
+
+    if timestamps.dt.tz is None:
+        raise ValueError(
+            "Timestamps must be timezone-aware."
+        )
+
+    if str(timestamps.dt.tz) != expected_timezone:
+        raise ValueError(
+            f"Expected timezone {expected_timezone}, "
+            f"but received {timestamps.dt.tz}."
         )
 
     if len(data) != expected_rows:

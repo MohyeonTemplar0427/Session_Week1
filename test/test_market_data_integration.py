@@ -7,7 +7,13 @@ from market_data_integration import (
     calculate_sensitivity_metrics,
     calculate_daily_metrics,
     merge_complete_time_series,
+    merge_real_market_data,
+    calculate_cost_with_external_price,
+    create_real_dispatch_summary,
+    validate_integrated_market_data,
 )
+
+from timeseries_validation import merge_complete_time_series
 
 def test_calculate_normalized_kpis():
 
@@ -333,3 +339,269 @@ def test_merge_complete_time_series_rejects_missing_interval():
             right_name="Price",
         )
 
+
+def test_merge_real_market_data_uses_external_market_signals():
+    timestamps = pd.date_range(
+            start="2026-08-25 00:00",
+            periods=2,
+            freq="15min",
+            tz="America/Los_Angeles",
+    )
+
+    synthetic_data = pd.DataFrame(
+        {
+            "timestamp": timestamps,
+            "load_kw": [5.0, 6.0],
+            "pv_kw": [1.0, 2.0],
+            "net_load_kw": [4.0, 4.0],
+            "price_per_kWh": [0.10, 0.10],
+            "gCO2/kWh": [500.0, 500.0],
+        }
+    )
+
+    price_data = pd.DataFrame(
+        {
+            "timestamp": timestamps,
+            "price_per_kWh": [0.20, 0.30],
+        }
+    )
+
+    carbon_data = pd.DataFrame(
+        {
+            "timestamp": timestamps,
+            "gCO2/kWh": [100.0, 200.0],
+        }
+    )
+
+    result = merge_real_market_data(
+        synthetic_data,
+        price_data,
+        carbon_data,
+    )
+
+    assert len(result) == 2
+
+    assert result["price_per_kWh"].tolist() == [
+        0.20,
+        0.30,
+    ]
+
+    assert result["gCO2/kWh"].tolist() == [
+        100.0,
+        200.0,
+    ]
+
+
+def test_calculate_cost_rejects_incomplete_price_coverage():
+    timestamps = pd.date_range(
+        start="2026-08-25 00:00",
+        periods=3,
+        freq="15min",
+        tz="America/Los_Angeles",
+    )
+
+    dispatch_data = pd.DataFrame(
+        {
+            "timestamp": timestamps,
+            "grid_import_kw": [
+                4.0,
+                4.0,
+                4.0,
+            ],
+        }
+    )
+
+    price_data = pd.DataFrame(
+        {
+            "timestamp": timestamps[:2],
+            "price_per_kWh": [
+                0.10,
+                0.20,
+            ],
+        }
+    )
+
+    with pytest.raises(
+        ValueError,
+        match="Price data does not cover exactly the same timestamps",
+    ):
+        calculate_cost_with_external_price(
+            dispatch_data,
+            price_data,
+            timestep_hours=0.25,
+        )
+
+def test_dispatch_summary_rejects_missing_market_interval():
+    timestamps = pd.date_range(
+        start="2026-08-25 00:00",
+        periods=3,
+        freq="15min",
+        tz="America/Los_Angeles",
+    )
+
+    dispatch_data = pd.DataFrame(
+        {
+            "timestamp": timestamps,
+            "battery_charge_kw": [
+                2.0,
+                0.0,
+                0.0,
+            ],
+            "battery_discharge_kw": [
+                0.0,
+                1.0,
+                1.0,
+            ],
+        }
+    )
+
+    market_data = pd.DataFrame(
+        {
+            "timestamp": timestamps[:2],
+            "price_per_kWh": [
+                0.10,
+                0.20,
+            ],
+            "gCO2/kWh": [
+                100.0,
+                200.0,
+            ],
+        }
+    )
+
+    with pytest.raises(
+        ValueError,
+        match=(
+            "Market signal data does not cover exactly "
+            "the same timestamps"
+        ),
+    ):
+        create_real_dispatch_summary(
+            dispatch_data,
+            market_data,
+        )
+
+
+def test_validate_integrated_market_data_rejects_timezone_naive_timestamps():
+    timestamps = pd.date_range(
+        start="2026-08-25 00:00",
+        periods=2,
+        freq="15min",
+        tz="America/Los_Angeles",
+    )
+
+    data = pd.DataFrame(
+        {
+            "timestamp": timestamps.tz_localize(None),
+            "load_kw": [5.0, 6.0],
+            "pv_kw": [1.0, 2.0],
+            "net_load_kw": [4.0, 4.0],
+            "price_per_kWh": [0.10, 0.20],
+            "gCO2/kWh": [100.0, 200.0],
+        }
+    )
+
+    with pytest.raises(
+        ValueError,
+        match="Timestamps must be timezone-aware",
+    ):
+        validate_integrated_market_data(
+            data,
+            expected_rows=2,
+        )
+
+
+
+def test_validate_integrated_market_data_rejects_wrong_timezone():
+    timestamps = pd.date_range(
+        start="2026-08-25 00:00",
+        periods=2,
+        freq="15min",
+        tz="America/Los_Angeles",
+    ).tz_convert("UTC")
+
+    data = pd.DataFrame(
+        {
+            "timestamp": timestamps,
+            "load_kw": [5.0, 6.0],
+            "pv_kw": [1.0, 2.0],
+            "net_load_kw": [4.0, 4.0],
+            "price_per_kWh": [0.10, 0.20],
+            "gCO2/kWh": [100.0, 200.0],
+        }
+    )
+
+    with pytest.raises(
+        ValueError,
+        match=(
+            "Expected timezone America/Los_Angeles, "
+            "but received UTC"
+        ),
+    ):
+        validate_integrated_market_data(
+            data,
+            expected_rows=2,
+        )
+
+
+def test_validate_integrated_market_data_rejects_infinite_price():
+    timestamps = pd.date_range(
+        start="2026-08-25 00:00",
+        periods=2,
+        freq="15min",
+        tz="America/Los_Angeles",
+    )
+
+    data = pd.DataFrame(
+        {
+            "timestamp": timestamps,
+            "load_kw": [5.0, 6.0],
+            "pv_kw": [1.0, 2.0],
+            "net_load_kw": [4.0, 4.0],
+            "price_per_kWh": [
+                0.10,
+                float("inf"),
+            ],
+            "gCO2/kWh": [100.0, 200.0],
+        }
+    )
+
+    with pytest.raises(
+        ValueError,
+        match="contains non-finite numeric values",
+    ):
+        validate_integrated_market_data(
+            data,
+            expected_rows=2,
+        )
+
+def test_validate_integrated_market_data_rejects_nonnumeric_value():
+    timestamps = pd.date_range(
+        start="2026-08-25 00:00",
+        periods=2,
+        freq="15min",
+        tz="America/Los_Angeles",
+    )
+
+    data = pd.DataFrame(
+        {
+            "timestamp": timestamps,
+            "load_kw": [
+                5.0,
+                "unknown",
+            ],
+            "pv_kw": [1.0, 2.0],
+            "net_load_kw": [4.0, 4.0],
+            "price_per_kWh": [0.10, 0.20],
+            "gCO2/kWh": [100.0, 200.0],
+        }
+    )
+
+    with pytest.raises(
+        ValueError,
+        match="contains nonnumeric values",
+    ):
+        validate_integrated_market_data(
+            data,
+            expected_rows=2,
+        )
