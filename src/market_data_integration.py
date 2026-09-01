@@ -28,12 +28,6 @@ RUNTIME_FILE = (
     / "runtime.json"
 )
 
-print(
-    "Loading .env from:",
-    env_path
-)
-
-
 load_dotenv(
     env_path, 
     override=True,
@@ -366,10 +360,6 @@ def validate_integrated_market_data(
         raise ValueError(
             "Carbon intensity cannot be negative."
         )
-
-    print(
-        "Integrated market data validation passed."
-    )
 
 ##Running multi-day experiment with input parameters
 def run_multi_day_experiment(

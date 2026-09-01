@@ -1,6 +1,5 @@
 import pandas as pd
 import single_day_analysis as sda
-import matplotlib.pyplot as plt
 
 
 def apply_daily_variation(
@@ -39,38 +38,6 @@ def apply_daily_variation(
     )
 
     return varied_data
-
-def compare_daily_metrics(
-        horizon_metrics:pd.DataFrame,
-        daily_reset_metrics: pd.DataFrame,
-) -> pd.DataFrame:
-
-    comparison = pd.merge(
-        horizon_metrics,
-        daily_reset_metrics,
-        on = "date",
-        suffixes = (
-            "_weekly",
-            "_daily_reset",
-        ),
-    )
-
-    comparison["cost_difference"] = (
-        comparison["cost_horizon"]
-        - comparison["cost_daily_reset"]
-    )
-
-    comparison["emissions_difference"] = (
-        comparison["emissions_kgCO2_horizon"]
-        - comparison["emissions_kgCO2_daily_reset"]
-    )
-
-    comparison["efc_difference"] = (
-        comparison["equivalent_full_cycles_horizon"]
-        - comparison["equivalent_full_cycles_daily_reset"]
-    )
-
-    return comparison
 
 def create_multi_day_dataframe(
     start_date: str,
@@ -210,76 +177,6 @@ def create_multi_day_dataframe(
     )
 
     return multi_day_data
-
-# Plotting
-def plot_horizon_soc(
-        data:pd.DataFrame,
-) -> None:
-
-    plt.figure(
-        figsize=(12, 5)
-    )
-
-    plt.plot(
-        data["timestamp"],
-        data["battery_soc_kWh"],
-    )
-
-    plt.xlabel(
-        "Time"
-    )
-
-    plt.ylabel(
-        "Battery SOC (kWh)"
-    )
-
-    plt.grid(
-        True
-    )
-
-    plt.tight_layout()
-
-    plt.show()
-
-def plot_soc_comparison(
-    horizon_data: pd.DataFrame,
-    daily_reset_data: pd.DataFrame,
-) -> None:
-    plt.figure(
-        figsize=(12, 5)
-    )
-
-    plt.plot(
-        horizon_data["timestamp"],
-        horizon_data["battery_soc_kWh"],
-        label="Full horizon",
-    )
-
-    plt.plot(
-        daily_reset_data["timestamp"],
-        daily_reset_data["battery_soc_kWh"],
-        label="Daily reset",
-    )
-
-    plt.xlabel(
-        "Time"
-    )
-
-    plt.ylabel(
-        "Battery SOC (kWh)"
-    )
-
-    plt.title(
-        "Full Horizon vs Daily-Reset Battery SOC"
-    )
-
-    plt.legend()
-
-    plt.grid(True)
-
-    plt.tight_layout()
-
-    plt.show()
 
 #optimize each day separately and concatenate the seven optimized daily results
 def run_daily_reset_optimization(
@@ -461,10 +358,6 @@ def validate_multi_day_data(
             "Missing values found."
         )
 
-    print(
-        "Multi-day input validation passed."
-    )
-
 def validate_multi_day_results(
     horizon_data: pd.DataFrame,
     horizon_optimized_data: pd.DataFrame,
@@ -490,10 +383,6 @@ def validate_multi_day_results(
         sda.battery_parameters,
     )
 
-    print(
-        "Multi-day optimization validation passed."
-    )
-    
 
 
 #Main()-------------------------------------------------------------------------------

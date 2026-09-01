@@ -336,8 +336,6 @@ def run_carbon_optimization(
 
     problem.solve()
 
-    #print("Carbon optimization status:", problem.status)
-
     if problem.status not in ["optimal", "optimal_inaccurate"]:
             raise ValueError(
                 f"Optimization failed with stats; {problem.status}"
@@ -350,9 +348,6 @@ def run_carbon_optimization(
         )
     
     objective_value = float(cast(float, objective_value))
-
-    #print("Carbon objective:", objective_value / 1000, "kgCO2")
-    #print("SOC raw value:", battery_soc_kWh.value)
 
     if problem.status not in ["optimal", "optimal_inaccurate"]:
         raise ValueError(
@@ -486,10 +481,6 @@ def run_cost_optimization(
     )
 
     problem.solve()
-
-    #print("Problem status:", problem.status)
-    #print("Objective value:", problem.value)
-    #print("SOC raw value:", battery_soc_kWh.value)
 
     if problem.status not in ["optimal", "optimal_inaccurate"]:
         raise ValueError(
@@ -698,7 +689,6 @@ def run_rule_based_dispatch(
         * data["price_per_kWh"]
     )
 
-    print(f"max error: {data['power_balance_error_kw'].abs().max()}")
     return data
 
 #Combined optimization considring the degradation cost per kWh and carbon weight of electriciy
@@ -829,10 +819,6 @@ def run_combined_optimization(
     )
 
     problem.solve()
-
-    #print("Combined optimization status:", problem.status)
-    #print("Combined objective score:", problem.value)
-    #print("SOC raw value:", battery_soc_kWh.value)
 
     if problem.status not in ["optimal", "optimal_inaccurate"]:
         raise ValueError(
@@ -991,8 +977,6 @@ def plot_degradation_sensitivity(
         dpi=300,
         bbox_inches="tight"
         )
-    print("\nPlot will not be shown as .show() is commented out")
-    #plt.show()
 
 
 
@@ -1044,8 +1028,6 @@ def plot_input_profiles(
         "results/input_profiles.png",
         dpi = 300,
     )
-    print("\n Plot will be shown as it's commented")
-    #plt.show()
 
 def plot_cost_emissions_tradeoff(
     results: pd.DataFrame,
@@ -1105,8 +1087,6 @@ def plot_cost_emissions_tradeoff(
                 dpi = 300,
                 bbox_inches="tight"
     )
-    print("\n Plot will not be shown as .show() is commented.")
-    #plt.show()
 
 def calculate_dispatch_metrics(
     data: pd.DataFrame,
@@ -1173,7 +1153,6 @@ def validate_dispatch(
         raise ValueError(
             "Power balance error exceeded tolerance."
         )
-    print("Dispatch validation passed")
 
 
 

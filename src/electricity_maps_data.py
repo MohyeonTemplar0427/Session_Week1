@@ -1,7 +1,6 @@
 import requests
 import os
 import pandas as pd
-import single_day_analysis as sda
 from dotenv import load_dotenv
 from timeseries_validation import merge_complete_time_series
 
@@ -15,67 +14,6 @@ pd.set_option(
     "display.max_columns",
     None,
 )
-
-def get_latest_carbon_intensity(
-        api_key: str,
-        zone: str,
-) -> dict:
-
-    url = (
-        "https://api.electricitymaps.com/"
-        "v4/carbon-intensity/latest"
-    )
-
-    headers = {
-        "auth-token": api_key,
-    }
-
-    params = {
-        "zone": zone,
-        "temporalGradularity": "15_minutes"
-    }
-
-    response = requests.get(
-        url,
-        headers=headers,
-        params=params,
-        timeout=30,
-    )
-
-    response.raise_for_status()
-
-    return response.json()
-
-
-# Converting result data from Electricity Maps to pandas dataframe 
-# so I can processs with built-in functions
-
-def carbon_response_to_dataframe(
-    result: dict,
-) -> pd.DataFrame:
-    data = pd.DataFrame(
-        [
-            {
-                "timestamp": result["datetime"],
-                "gCO2/kWh": result["carbonIntensity"],
-            }
-        ]
-    )
-
-    data["timestamp"] = pd.to_datetime(
-        data["timestamp"],
-        utc=True,
-    )
-
-    data["timestamp"] = (
-        data["timestamp"]
-        .dt.tz_convert(
-            "America/Los_Angeles"
-        )
-    )
-
-    return data
-
 
 #Return Carbon intensity for set range with granularity set manually inside the function
 def get_carbon_intensity_range(
@@ -150,25 +88,6 @@ def carbon_range_to_dataframe(
     return data
 
 
-def merge_real_carbon_data(
-        synthetic_data: pd.DataFrame,
-        carbon_data: pd.DataFrame,
-) -> pd.DataFrame:
-
-    base_data = synthetic_data.drop(
-        columns=["gCO2/kWh"]
-    )
-
-    merged_data = pd.merge(
-        base_data,
-        carbon_data,
-        on="timestamp",
-        how="inner",
-    )
-
-    return merged_data
-
-
 def calculate_emissions_with_external_carbon(
         dispatch_data: pd.DataFrame,
         carbon_data: pd.DataFrame,
@@ -198,95 +117,6 @@ def calculate_emissions_with_external_carbon(
     )
 
     return float(emissions_kgCO2)
-
-def create_dispatch_comparison(
-        synthetic_optimized: pd.DataFrame,
-        real_carbon_optimized: pd.DataFrame,
-        carbon_data: pd.DataFrame,
-) -> pd.DataFrame:
-
-    tolerance = 1e-6
-
-    comparison = pd.DataFrame(
-        {
-            "timestamp": real_carbon_optimized["timestamp"],
-            "gCO2/kWh": carbon_data["gCO2/kWh"],
-            "synthetic_charge_kw": synthetic_optimized[
-                "battery_charge_kw"
-            ],
-            "synthetic_discharge_kw": synthetic_optimized[
-                "battery_discharge_kw"
-            ],
-            "real_charge_kw": real_carbon_optimized[
-                "battery_charge_kw"
-            ],
-            "real_discharge_kw": real_carbon_optimized[
-                "battery_discharge_kw"
-            ],
-        }
-    )
-
-    comparison["charge_difference_kw"] = (
-        comparison["real_charge_kw"]
-        - comparison["synthetic_charge_kw"]
-    )
-
-    comparison["discharge_difference_kw"] = (
-        comparison["real_discharge_kw"]
-        - comparison["synthetic_discharge_kw"]
-    )
-
-    comparison["total_dispatch_difference_kw"] = (
-        comparison["charge_difference_kw"].abs()
-        + comparison["discharge_difference_kw"].abs()
-    )
-
-    comparison.loc[
-        comparison["real_charge_kw"].abs() < tolerance,
-        "real_charge_kw"
-    ] = 0.0
-
-    comparison.loc[
-        comparison["synthetic_discharge_kw"].abs() < tolerance,
-        "synthetic_discharge_charge_kw"
-    ] = 0.0
-
-    comparison.loc[
-        comparison["synthetic_charge_kw"].abs() < tolerance,
-        "synthetic_charge_kw"
-    ] = 0.0
-
-    comparison.loc[
-        comparison["real_discharge_kw"].abs() < tolerance,
-        "real_discharge_kw"
-    ] = 0.0
-
-
-    return comparison
-
-#Calculate Weighted Carbon Intensity with power weight
-
-def calculate_weighted_carbon_intensity(
-        intervals: pd.DataFrame,
-        power_column: str,
-) -> float:
-
-    if intervals[power_column].sum() == 0:
-        raise ValueError(
-            "Total power must be greater than 0."
-        )
-
-    weighted_carbon = (
-        (intervals["gCO2/kWh"]
-        * intervals[power_column]
-    ).sum()
-    /
-    intervals[power_column].sum()
-    )
-
-    return float(
-        weighted_carbon
-    )
 
 def validate_carbon_data(
         data: pd.DataFrame,
@@ -369,12 +199,8 @@ def validate_carbon_data(
             "Carbon Intensity cannot be negative"
         )
 
-    print(
-        "Carbon data validation passed."
-    )
 
-
-#Helper Function for creating multi-day time range    
+#Helper Function for creating multi-day time range
 def create_utc_time_range(
         start_date: str,
         number_of_days: int,

@@ -1,58 +1,8 @@
 import gridstatus
 import pandas as pd
 import time
-from pathlib import Path
 
 LOCAL_TIMEZONE = "America/Los_Angeles"
-
-PROJECT_ROOT = (
-    Path(__file__).resolve().parents[1]
-)
-
-CAISO_CACHE_DIR = (
-    PROJECT_ROOT
-    / "data"
-    / "cache"
-    / "caiso"
-)
-
-def measure_average_query_time(
-    location: str = "TH_NP15_GEN-APND",
-    number_of_runs: int = 5,
-) -> float:
-
-    runtimes = []
-
-    for run in range(number_of_runs):
-
-        start_time = time.perf_counter()
-
-        get_caiso_real_time_prices(
-            "2026-08-26",
-            location= location,
-        )
-
-
-        end_time = time.perf_counter()
-
-        runtime = (
-            end_time
-            - start_time
-        )
-
-        runtimes.append(runtime)
-
-        print(
-            f"Run {run + 1}: "
-            f"{runtime:.2f} seconds"
-        )
-
-    average_runtime = (
-        sum(runtimes)
-        / len(runtimes)
-    )
-
-    return average_runtime
 
 ## Fetch caiso real time price data from gridstatus
 def get_caiso_real_time_prices(
@@ -238,151 +188,6 @@ def validate_price_data(
             f"but received {timezone}."
         )
 
-    print(
-        "Price data validation passed."
-    )
-
-# Caching function used to improve runtime
-def load_or_fetch_caiso_prices(
-        date: str,
-        location:str,
-        force_refresh: bool = False,
-) -> pd.DataFrame:
-
-    cache_file = (
-        CAISO_CACHE_DIR
-        / f"caiso_np15_{date}.csv"
-    )
-
-    if (
-        cache_file.exists() 
-        and not force_refresh
-    ):
-        print(
-            f"Loading cached CAISO prices "
-            f"for {date}"
-        )
-
-        data = pd.read_csv(
-            cache_file
-        )
-
-        data["timestamp"] = (
-            pd.to_datetime(
-                data["timestamp"],
-                utc=True,
-            )
-            .dt.tz_convert(
-                "America/Los_Angeles"
-            )
-        )
-        validate_price_data(
-            data,
-            expected_rows = 96
-        )
-
-        return data
-
-    print(
-        f"Fetching CAISO prices "
-        f"from API for {date}"
-    )
-
-    raw_data = (
-        get_caiso_real_time_prices(
-            date=date,
-            location=location,
-        )
-    )
-
-    data = (
-        caiso_price_to_dataframe(
-            raw_data
-        )
-    )
-
-    validate_price_data(
-        data,
-        expected_rows=96,
-    )
-
-    CAISO_CACHE_DIR.mkdir(
-        parents=True,
-        exist_ok=True,
-    )
-
-    data.to_csv(
-        cache_file,
-        index=False
-    )
-
-    print(
-        f"Saved CAISO cache: "
-        f"{cache_file.name}"
-    )
-
-    return data
-
-
-
-def get_multi_day_caiso_prices(
-        start_date: str,
-        number_of_days: int,
-        location: str
-) ->pd.DataFrame:
-
-    daily_dataframes = []
-
-    start_timestamp = pd.Timestamp(
-        start_date
-    )
-
-    for day_offset in range(
-        number_of_days
-    ):
-
-        current_date = (
-            start_timestamp
-            + pd.Timedelta(
-                days=day_offset
-            )
-        )
-
-        date_string = (
-            current_date.strftime(
-                "%Y-%m-%d"
-            )
-        )
-
-        price_data = (
-            load_or_fetch_caiso_prices(
-                date_string,
-                location=location,
-                force_refresh=False,
-            )
-        )
-
-        daily_dataframes.append(
-            price_data
-        )
-
-    multi_day_data = pd.concat(
-        daily_dataframes,
-        ignore_index = True,
-    )
-
-    validate_price_data(
-        multi_day_data,
-        expected_rows=(
-            number_of_days * 96
-        ),
-    )
-
-    return multi_day_data
-
-
-
-
 ##MAIN------------------------------------------------------------------------
 if __name__ == "__main__":
 
@@ -411,12 +216,6 @@ if __name__ == "__main__":
     )
 
     query_runtime = end_time - start_time
-
-
-    print(price_data.head())
-    print(price_data.tail())
-    print(price_data.shape)
-    print(price_data.dtypes)
 
     print(
         f"CAISO query runtime: "

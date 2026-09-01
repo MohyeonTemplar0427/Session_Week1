@@ -1,7 +1,6 @@
 """ Create explicit dispatch schedules for later OpenDSS replay. """
 
 import pandas as pd
-import pytest
 import numpy as np
 
 REQUIRED_DISPATCH_COLUMNS = {
