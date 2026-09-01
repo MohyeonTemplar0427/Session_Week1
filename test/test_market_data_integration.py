@@ -11,7 +11,8 @@ from market_data_integration import (
     calculate_cost_with_external_price,
     create_real_dispatch_summary,
     validate_integrated_market_data,
-    create_market_signal_scenarios
+    create_market_signal_scenarios,
+    create_scenario_comparison_table
 )
 
 from electricity_maps_data import (
@@ -776,3 +777,87 @@ def test_market_signal_scenarios_isolate_price_and_carbon():
         scenarios["combined_real"]["gCO2/kWh"],
         carbon_data["gCO2/kWh"],
     )
+
+
+def test_create_scenario_comparison_table_uses_common_baseline():
+    scenario_metrics = {
+        "no_battery": {
+            "cost": 100.0,
+            "emissions_kgCO2": 200.0,
+            "total_operating_cost": 100.0
+        },
+        "real_price": {
+            "cost": 80.0,
+            "emissions_kgCO2": 190.0,
+            "total_operating_cost": 82.0
+        },
+        "real_carbon": {
+            "cost": 95.0,
+            "emissions_kgCO2": 150.0,
+            "total_operating_cost": 98.0
+        },
+        "combined_real": {
+            "cost": 85.0,
+            "emissions_kgCO2": 160.0,
+            "total_operating_cost": 90.0
+        },
+    }
+
+    result = create_scenario_comparison_table(
+        scenario_metrics
+    ).set_index("scenario")
+
+    assert result.loc[
+        "no_battery",
+        "cost_savings",
+    ] == pytest.approx(0.0)
+
+    assert result.loc[
+        "no_battery",
+        "emissions_reduction_kgCO2",
+    ] == pytest.approx(0.0)
+
+    assert result.loc[
+        "real_price",
+        "cost_savings",
+    ] == pytest.approx(20.0)
+
+    assert result.loc[
+        "real_price",
+        "emissions_reduction_kgCO2",
+    ] == pytest.approx(10.0)
+
+    assert result.loc[
+        "real_carbon",
+        "cost_savings",
+    ] == pytest.approx(5.0)
+
+    assert result.loc[
+        "real_carbon",
+        "emissions_reduction_kgCO2",
+    ] == pytest.approx(50.0)
+
+    assert result.loc[
+        "combined_real",
+        "cost_savings",
+    ] == pytest.approx(15.0)
+
+    assert result.loc[
+        "combined_real",
+        "emissions_reduction_kgCO2",
+    ] == pytest.approx(40.0)
+
+    assert result.loc[
+    "real_price",
+    "operating_cost_savings",
+    ] == pytest.approx(18.0)
+
+    assert result.loc[
+        "real_carbon",
+        "operating_cost_savings",
+    ] == pytest.approx(2.0)
+
+    assert result.loc[  
+        "combined_real",
+        "operating_cost_savings",
+    ] == pytest.approx(10.0)

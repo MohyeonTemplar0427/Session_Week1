@@ -459,10 +459,37 @@ def run_multi_day_experiment(
             )
         )
 
+        battery_usage = (
+            sda.calculate_battery_usage_metrics(
+                optimized_data,
+                battery_parameters,
+                timestep_hours=config.timestep_hours,
+            )
+        )
+
+        battery_throughput = float(
+            battery_usage['throughput_kWh']
+        )
+
+        degradation_cost = (
+            battery_throughput
+            * config.degradation_cost_per_kWh
+        )
+
         scenario_metrics[scenario_name] = {
             "cost": float(evaluated_cost),
             "emissions_kgCO2": float(
                 evaluated_emissions
+            ),
+            "battery_throughput_kWh": (
+                battery_throughput
+            ),
+            "degradation_cost": float(
+                degradation_cost
+            ),
+            "total_operating_cost": float(
+                evaluated_cost
+                + degradation_cost
             ),
         }
 
@@ -529,6 +556,11 @@ def run_multi_day_experiment(
         "cost": float(no_battery_cost),
         "emissions_kgCO2": float(
             no_battery_emissions
+        ),
+        "battery_throughput_kWh": 0.0,
+        "degradation_cost": 0.0,
+        "total_operating_cost": float(
+            no_battery_cost
         ),
     }
 
@@ -886,21 +918,24 @@ def calculate_normalized_kpis(
     }
 
 def create_scenario_comparison_table(
-        result: ExperimentResult,
+        scenario_metrics: dict[
+            str,
+            dict[str, float],
+        ],
 ) -> pd.DataFrame:
     """Create a common-baseline comparison for all signal scenarios"""
 
-    if "no_battery" not in result.scenario_metrics:
+    if "no_battery" not in scenario_metrics:
         raise ValueError(
             "Scenario metrics must include a no_battery baseline."
         )
 
     comparison = (
         pd.DataFrame.from_dict(
-            result.scenario_metrics,
+            scenario_metrics,
             orient="index"
         )
-        .rename_axis("scenarios")
+        .rename_axis("scenario")
         .reset_index()
     )
 
@@ -915,6 +950,11 @@ def create_scenario_comparison_table(
     comparison["cost_savings"] = (
         baseline["cost"]
         - comparison["cost"]
+    )
+
+    comparison["operating_cost_savings"] = (
+        baseline["total_operating_cost"]
+        - comparison["total_operating_cost"]
     )
 
     comparison["emissions_reduction_kgCO2"] = (
@@ -1071,6 +1111,9 @@ def main() -> None:
         )
     )
 
+    experiment_summaries = []
+    signal_scenario_tables = [] 
+
     # Experiment configuration
     base_config = ExperimentConfig(
         start_date="2026-08-25",
@@ -1115,6 +1158,22 @@ def main() -> None:
             battery_parameters=battery_parameters,
         )
 
+        signal_scenario_table = (
+            create_scenario_comparison_table(
+                result.scenario_metrics
+            )
+        )
+
+        signal_scenario_table.insert(
+            0,
+            "carbon_weight",
+            carbon_weight,
+        )
+
+        signal_scenario_tables.append(
+            signal_scenario_table
+        )
+
         summary = experiment_result_to_dict(
             experiment_name=(
                 f"Carbon weight {carbon_weight}"
@@ -1129,6 +1188,26 @@ def main() -> None:
         experiment_summaries.append(
             summary
         )
+    signal_scenario_comparison = pd.concat(
+        signal_scenario_tables,
+        ignore_index = True,
+    )
+
+    scenario_output_path = (
+        PROJECT_ROOT
+        / "results"
+        / "week2_market_signal_scenario_comparison.csv"
+    )
+
+    scenario_output_path.parent.mkdir(
+        parents = True,
+        exist_ok = True,
+    )
+
+    signal_scenario_comparison.to_csv(
+        scenario_output_path,
+        index=False,
+    )
 
     comparison_table = pd.DataFrame(
         experiment_summaries
@@ -1152,6 +1231,21 @@ def main() -> None:
             index=False
         )
     )
+    print(
+        "\n=== Market Signal Scenario Comparison ==="
+    )
+
+    print(
+        signal_scenario_comparison
+        .round(3)
+        .to_string(index=False)
+    )
+
+    print(
+    f"\nSaved scenario comparison to: "
+    f"{scenario_output_path}"
+)   
+    
 
     # Runtime
     runtime = (
