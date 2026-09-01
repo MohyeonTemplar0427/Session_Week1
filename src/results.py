@@ -34,3 +34,9 @@ class ExperimentResult:
         str,
         dict[str, float],
     ] = field(default_factory = dict)
+
+    opendss_handoff: pd.DataFrame = field(
+        default_factory=pd.DataFrame
+    )
+
+    

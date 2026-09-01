@@ -1,21 +1,19 @@
-import os
+import json, math, os, time
 import pandas as pd
 import numpy as np
-from pathlib import Path
-import json
-from dotenv import load_dotenv, find_dotenv
-
 import single_day_analysis as sda
 import electricity_maps_data as emd
 import gridstatus_data as gsd
 import multi_day_analysis as mda
-import time
+from pathlib import Path
+from dotenv import load_dotenv, find_dotenv
 from battery import Battery
 from config import ExperimentConfig, to_optimizer_parameters
 from results import ExperimentResult
 from experiment_data import ExperimentData
 from dataclasses import replace
 from timeseries_validation import merge_complete_time_series
+from opendss_handoff import create_opendss_handoff
 
 
 env_path = find_dotenv()
@@ -432,6 +430,14 @@ def run_multi_day_experiment(
                 f"Dispatch validation failed for {scenario_name}"
             ) from error
 
+    opendss_handoff = create_opendss_handoff(
+        real_market_optimized,
+        timestep_minutes=int(
+            config.timestep_hours * 60
+        ),
+        expected_timezone=config.timezone,
+    )
+
 
     scenario_metrics: dict[
         str,
@@ -740,6 +746,7 @@ def run_multi_day_experiment(
         daily_summary = daily_summary,
 
         scenario_metrics=scenario_metrics,
+        opendss_handoff=opendss_handoff,
     )
 
 def prepare_experiment_data(
@@ -1157,6 +1164,92 @@ def main() -> None:
             data=experiment_data,
             battery_parameters=battery_parameters,
         )
+
+        if math.isclose(
+            carbon_weight,
+            base_config.carbon_weight,
+        ):
+            handoff_output_path = (
+                PROJECT_ROOT
+                / "results"
+                / "week2_opendss_handoff_combined_real_15min.csv"
+            )
+
+            handoff_output_path.parent.mkdir(
+                parents=True,
+                exist_ok=True
+            )
+
+            result.opendss_handoff.to_csv(
+                handoff_output_path,
+                index=False,
+            )
+
+            handoff_metadata_path = (
+                PROJECT_ROOT
+                / "results"
+                / "week2_opendss_handoff_combined_real_15min_metadata.json"
+            )
+
+            handoff_metadata = {
+                "scenario": "combined_real",
+                "carbon_weight": carbon_weight,
+                "timestep_minutes": int(
+                    current_config.timestep_hours * 60
+                ),
+                "timezone": current_config.timezone,
+                "rows": len(result.opendss_handoff),
+                "zero_tolerance_kw": 1e-6,
+                "units": {
+                    "timestamp": "ISO 8601 Pacific time",
+                    "load_kw": "kW",
+                    "pv_kw": "kW",
+                    "battery_charge_kw": "kW",
+                    "battery_discharge_kw": "kW",
+                    "grid_import_kw": "kW",
+                    "grid_export_kw": "kW",
+                    "battery_soc_kWh": "kWh",
+                    "battery_net_injection_kw": "kW",
+                    "grid_net_import_kw": "kW",
+                },
+                "sign_conventions": {
+                    "battery_net_injection_kW": (
+                        "Positive supplies the feeder; "
+                        "negative consumes from the feeder."
+                    ),
+                    "grid_net_import_kw": (
+                        "Positive imports from the utility;"
+                        "negative exports to the utility."
+                    )
+                },
+                "formulas": {
+                    "battery_net_injection_kw": (
+                        "battery_discharge_kw - battery_charge_kw"
+                    ),
+                    "grid_net_import_kw": (
+                        "grid_import - grid_export_kw"
+                    ),
+                },
+            }
+
+            handoff_metadata_path.write_text(
+                json.dumps(
+                    handoff_metadata,
+                    indent = 4,
+                )
+                + "\n",
+                encoding = "utf-8"
+            )
+
+            print(
+                f"\nSaved OpenDSS handoff to: "
+                f"{handoff_output_path}"
+            )
+
+            print(
+                f"Saved OpenDSS metadata to: "
+                f"{handoff_metadata_path}"
+            )
 
         signal_scenario_table = (
             create_scenario_comparison_table(

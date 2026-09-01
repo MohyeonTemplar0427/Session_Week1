@@ -89,3 +89,37 @@ def test_create_opendss_handoff_rejects_missing_interval():
             dispatch_data
         )
 
+
+
+def test_create_opendss_handoff_rejects_infinite_value():
+    timestamps = pd.date_range(
+        start="2026-08-25 00:00",
+        periods=2,
+        freq="15min",
+        tz="America/Los_Angeles",
+    )
+
+    dispatch_data = pd.DataFrame(
+        {
+            "timestamp": timestamps,
+            "load_kw": [
+                5.0,
+                float("inf"),
+            ],
+            "pv_kw": [1.0, 1.0],
+            "battery_charge_kw": [0.0, 0.0],
+            "battery_discharge_kw": [0.0, 0.0],
+            "grid_import_kw": [4.0, 4.0],
+            "grid_export_kw": [0.0, 0.0],
+            "battery_soc_kWh": [10.0, 10.0],
+        }
+    )
+
+    with pytest.raises(
+        ValueError,
+        match="contains non-finite values",
+    ):
+        create_opendss_handoff(
+            dispatch_data
+        )
+

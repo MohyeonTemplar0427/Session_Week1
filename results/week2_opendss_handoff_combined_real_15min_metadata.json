@@ -1,0 +1,28 @@
+{
+    "scenario": "combined_real",
+    "carbon_weight": 0.2,
+    "timestep_minutes": 15,
+    "timezone": "America/Los_Angeles",
+    "rows": 192,
+    "zero_tolerance_kw": 1e-06,
+    "units": {
+        "timestamp": "ISO 8601 Pacific time",
+        "load_kw": "kW",
+        "pv_kw": "kW",
+        "battery_charge_kw": "kW",
+        "battery_discharge_kw": "kW",
+        "grid_import_kw": "kW",
+        "grid_export_kw": "kW",
+        "battery_soc_kWh": "kWh",
+        "battery_net_injection_kw": "kW",
+        "grid_net_import_kw": "kW"
+    },
+    "sign_conventions": {
+        "battery_net_injection_kW": "Positive supplies the feeder; negative consumes from the feeder.",
+        "grid_net_import_kw": "Positive imports from the utility;negative exports to the utility."
+    },
+    "formulas": {
+        "battery_net_injection_kw": "battery_discharge_kw - battery_charge_kw",
+        "grid_net_import_kw": "grid_import - grid_export_kw"
+    }
+}
