@@ -1,7 +1,7 @@
 import opendssdirect as dss
 import pytest
 
-from src.week3_opendss_analysis import (
+from src.opendss_analysis import (
     create_base_circuit,
 )
 
