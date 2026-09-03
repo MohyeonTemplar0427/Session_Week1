@@ -3,10 +3,11 @@ import pytest
 
 from src.opendss_analysis import (
     LoadingStatus,
-    create_base_circuit,
+    assess_line_loading,
+    assess_voltage_limits,
     calculate_feeder_metrics,
     classify_line_loading,
-    assess_voltage_limits
+    create_base_circuit,
 )
 
 def test_create_base_circuit_solves_balanced_feeder():
@@ -135,3 +136,27 @@ def test_assess_voltage_limits(
         result.within_limits
         is expected_within_limits
     )
+
+def test_assess_line_loading_rejects_empty_currents():
+    with pytest.raises(
+        ValueError, match = "At least one phase current is required",):
+        assess_line_loading(
+            (),
+            normal_amps=100.0,
+            emergency_amps=125.0,
+        )
+
+def test_assess_line_loading_uses_maximum_phase():
+    result = assess_line_loading(
+        (80.0, 110.0, 90.0),
+        normal_amps=100.0,
+        emergency_amps=125.0,
+    )
+
+    assert result.maximum_current_a == pytest.approx(110.0)
+
+    assert result.normal_loading_percent == pytest.approx(110.0)
+
+    assert result.emergency_loading_percent == pytest.approx(88.0)
+
+    assert result.status == LoadingStatus.EMERGENCY

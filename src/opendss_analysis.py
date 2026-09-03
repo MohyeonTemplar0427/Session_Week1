@@ -42,6 +42,17 @@ class VoltageAssessment:
     maximum_voltage_pu: float
     within_limits: bool
 
+@dataclass(frozen=True)
+class LineLoadingAssessment:
+    """Result of checking a line against amp ratings"""
+
+    maximum_current_a: float
+    normal_rating_a: float
+    emergency_rating_a: float
+    normal_loading_percent: float
+    emergency_loading_percent: float
+    status: LoadingStatus
+
 
 
 
@@ -204,6 +215,39 @@ def classify_line_loading(
 
     return LoadingStatus.ABOVE_EMERGENCY
 
+def assess_line_loading(
+    phase_currents_a: Sequence[float],
+    *,
+    normal_amps: float,
+    emergency_amps: float,
+) -> LineLoadingAssessment:
+    """Assess phase currents agsint line ratings."""
+    if not phase_currents_a:
+        raise ValueError(
+            "At least one phase current is required."
+        )
+    
+    maximum_current_a = max(phase_currents_a)
+
+    status = classify_line_loading(
+        current_a=maximum_current_a,
+        normal_amps=normal_amps,
+        emergency_amps=emergency_amps,
+    )
+
+    return LineLoadingAssessment(
+        maximum_current_a=maximum_current_a,
+        normal_rating_a = normal_amps,
+        emergency_rating_a=emergency_amps,
+        normal_loading_percent=(
+            maximum_current_a / normal_amps * 100
+        ),
+        emergency_loading_percent=(
+            maximum_current_a / emergency_amps * 100
+        ),
+        status=status,
+    )
+
 def assess_voltage_limits(
     phase_voltages_pu: Sequence[float],
     *,
@@ -258,35 +302,6 @@ def main ()-> None:
         dss.CktElement.EmergAmps()
     )
 
-    if (
-        feeder_normal_amps is None
-        or feeder_normal_amps <= 0
-    ):
-        raise ValueError(
-            "Feeder normal amp rating must be positive."
-        )
-
-    maximum_phase_current_a = max(
-        feeder_metrics.phase_currents_a
-    )
-
-    feeder_loading_percent = (
-        maximum_phase_current_a
-        / feeder_normal_amps
-        * 100
-    )
-
-    if feeder_emergency_amps is None:
-        raise ValueError(
-            "Feeder emergency amp rating is missing."
-        )
-
-    loading_status = classify_line_loading(
-        maximum_phase_current_a,
-        feeder_normal_amps,
-        feeder_emergency_amps,
-    )
-
     #Bus methods read the currently active bus.
     dss.Circuit.SetActiveBus("source_bus")
 
@@ -337,6 +352,23 @@ def main ()-> None:
         feeder_metrics.real_loss_kw
         - calculated_real_loss_kw
     ) * 1000
+
+    if (
+        feeder_normal_amps is None
+        or feeder_emergency_amps is None
+    ):
+        raise ValueError(
+            "Feeder amp ratings are missing"
+        )
+
+    loading_assessment = assess_line_loading(
+        feeder_metrics.phase_currents_a,
+        normal_amps=feeder_normal_amps,
+        emergency_amps=feeder_emergency_amps,
+    )
+
+
+    # Print Call_______________________________________________________
 
     print(f"\nActive circuit: {circuit_name}")
     print(f"Buses: {dss.Circuit.AllBusNames()}")
@@ -417,27 +449,32 @@ def main ()-> None:
 
     print(
         "Feeder normal rating (A): "
-        f"{feeder_normal_amps}"
+        f"{loading_assessment.normal_rating_a}"
     )
 
     print(
         "Feeder emergency rating (A): "
-        f"{feeder_emergency_amps}"
+        f"{loading_assessment.emergency_rating_a}"
     )
 
     print(
         "\nMaximum feeder phase current (A): "
-        f"{maximum_phase_current_a:.4f}"
+        f"{loading_assessment.maximum_current_a:.4f}"
     )
 
     print(
         "Feeder normal loading (%): "
-        f"{feeder_loading_percent:.4f}"
+        f"{loading_assessment.normal_loading_percent:.4f}"
+    )
+
+    print(
+        "Feeder emergency loading (%): "
+        f"{loading_assessment.emergency_loading_percent:.4f}"
     )
 
     print(
         "Feeder loading status: "
-        f"{loading_status.value}"
+        f"{loading_assessment.status.value}"
     )
 
     print(
