@@ -3,6 +3,8 @@
 import opendssdirect as dss
 import math
 from dataclasses import dataclass
+from enum import Enum 
+from collections.abc import Sequence
 
 # CktElement.Powers() returnns alternating real and reactive
 # power for each phase and terminal
@@ -25,6 +27,23 @@ class FeederMetrics:
     real_loss_kw: float
     reactive_absorption_kvar: float
 
+class LoadingStatus(Enum):
+    """Allowed feeder loading classifications. """
+
+    NORMAL = "normal"
+    EMERGENCY = "emergency"
+    ABOVE_EMERGENCY = "above_emergency"
+
+@dataclass(frozen=True)
+class VoltageAssessment:
+    """Result of checking phase voltages against limits."""
+
+    minimum_voltage_pu: float
+    maximum_voltage_pu: float
+    within_limits: bool
+
+
+
 
 def create_base_circuit() -> tuple[str, list[float]]:
     """Create an empty three-phase microgrid circuit."""
@@ -38,7 +57,7 @@ def create_base_circuit() -> tuple[str, list[float]]:
         "phases=3 "
         "bus1=source_bus"
     )
-
+    #noramp: normal amp(A), emeramp: emergency amp(A) rating
     dss.Text.Command(
         "New Line.Feeder "
         "bus1=source_bus.1.2.3 "
@@ -49,7 +68,9 @@ def create_base_circuit() -> tuple[str, list[float]]:
         "r1=0.2 "
         "x1=0.4 "
         "r0=0.4 "
-        "x0=0.8"
+        "x0=0.8 "
+        "normamps=100 "
+        "emergamps=125"
     )
 
     dss.Text.Command(
@@ -158,6 +179,63 @@ def calculate_feeder_metrics(
         ),
     )
 
+def classify_line_loading(
+        current_a: float,
+        normal_amps: float,
+        emergency_amps: float,
+) -> LoadingStatus:
+    """Classify current against line amp ratings."""
+
+    if normal_amps <= 0:
+        raise ValueError(
+            "Normal amp rating must be positive."
+        )
+
+    if emergency_amps < normal_amps:
+        raise ValueError(
+            "Emergency rating must be at least the normal rating."
+        )
+
+    if current_a <= normal_amps:
+        return LoadingStatus.NORMAL
+
+    if current_a <= emergency_amps:
+        return LoadingStatus.EMERGENCY
+
+    return LoadingStatus.ABOVE_EMERGENCY
+
+def assess_voltage_limits(
+    phase_voltages_pu: Sequence[float],
+    *,
+    minimum_limit_pu: float = 0.95,
+    maximum_limit_pu: float = 1.05,
+) -> VoltageAssessment:
+    """Assess phase-voltage magnitudes against limits."""
+
+    if not phase_voltages_pu:
+        raise ValueError(
+            "At least one phase voltage is required"
+        )
+
+    if minimum_limit_pu >= maximum_limit_pu:
+        raise ValueError(
+            "Minimum voltage limit must be below the maximum voltage limit."
+        )
+
+    minimum_voltage_pu = min(phase_voltages_pu)
+    maximum_voltage_pu = max(phase_voltages_pu)
+    within_limits = (
+        minimum_voltage_pu >= minimum_limit_pu
+        and maximum_voltage_pu <= maximum_limit_pu
+    )
+
+    return VoltageAssessment(
+        minimum_voltage_pu=minimum_voltage_pu,
+        maximum_voltage_pu=maximum_voltage_pu,
+        within_limits=within_limits,
+    )
+
+
 # Main() ----------------------------------------------------------
 def main ()-> None:
     """Run and report the base OpenDSS feeder analysis."""
@@ -169,6 +247,45 @@ def main ()-> None:
     # Select the feeder and collect its reusable
     # current, power, power-factor, and loss metrics
     feeder_metrics = calculate_feeder_metrics()
+
+    dss.Circuit.SetActiveElement("Line.Feeder")
+
+    feeder_normal_amps = (
+        dss.CktElement.NormalAmps()
+    )
+
+    feeder_emergency_amps = (
+        dss.CktElement.EmergAmps()
+    )
+
+    if (
+        feeder_normal_amps is None
+        or feeder_normal_amps <= 0
+    ):
+        raise ValueError(
+            "Feeder normal amp rating must be positive."
+        )
+
+    maximum_phase_current_a = max(
+        feeder_metrics.phase_currents_a
+    )
+
+    feeder_loading_percent = (
+        maximum_phase_current_a
+        / feeder_normal_amps
+        * 100
+    )
+
+    if feeder_emergency_amps is None:
+        raise ValueError(
+            "Feeder emergency amp rating is missing."
+        )
+
+    loading_status = classify_line_loading(
+        maximum_phase_current_a,
+        feeder_normal_amps,
+        feeder_emergency_amps,
+    )
 
     #Bus methods read the currently active bus.
     dss.Circuit.SetActiveBus("source_bus")
@@ -190,6 +307,10 @@ def main ()-> None:
             load_phase_voltages_pu,
         )
     ]
+
+    voltage_assessment = assess_voltage_limits(
+        load_phase_voltages_pu
+    )
 
     feeder_real_loss_percent = (
         feeder_metrics.real_loss_kw
@@ -293,6 +414,49 @@ def main ()-> None:
         "Source power factor: "
         f"{feeder_metrics.power_factor:.4f}"
     )
+
+    print(
+        "Feeder normal rating (A): "
+        f"{feeder_normal_amps}"
+    )
+
+    print(
+        "Feeder emergency rating (A): "
+        f"{feeder_emergency_amps}"
+    )
+
+    print(
+        "\nMaximum feeder phase current (A): "
+        f"{maximum_phase_current_a:.4f}"
+    )
+
+    print(
+        "Feeder normal loading (%): "
+        f"{feeder_loading_percent:.4f}"
+    )
+
+    print(
+        "Feeder loading status: "
+        f"{loading_status.value}"
+    )
+
+    print(
+        "\nMinimum load-bus voltage (pu): "
+        f"{voltage_assessment.minimum_voltage_pu:.4f}"
+    )
+
+    print(
+        "Maximum load-bus voltage (pu): "
+        f"{voltage_assessment.maximum_voltage_pu:.4f}"
+    )
+
+    print(
+        "Load-bus voltage within limits: "
+        f"{voltage_assessment.within_limits}"
+    )
+
+
+
 
 if __name__ == "__main__":
     main()
