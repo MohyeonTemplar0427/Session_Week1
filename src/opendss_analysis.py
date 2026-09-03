@@ -12,6 +12,8 @@ from dataclasses import dataclass
 # math.hypot(P,Q) calculates magnitude directly
 # = sqrt(P^2 + Q^2)
 
+
+#frozen = True makes the class immutable
 @dataclass(frozen=True)
 class FeederMetrics:
     """Electrical measurements for the active feeder line"""
