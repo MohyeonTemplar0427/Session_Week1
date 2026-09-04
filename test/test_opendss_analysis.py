@@ -1,6 +1,7 @@
 import opendssdirect as dss
 import pytest
 import pandas as pd
+from pathlib import Path
 
 from src.opendss_analysis import (
     LoadingStatus,
@@ -10,7 +11,9 @@ from src.opendss_analysis import (
     classify_line_loading,
     create_base_circuit,
     add_replay_resources,
-    apply_dispatch_operating_point
+    apply_dispatch_operating_point,
+    replay_dispatch_timeseries,
+
 )
 
 def test_create_base_circuit_solves_balanced_feeder():
@@ -231,4 +234,37 @@ def test_apply_dispatch_operating_point_uses_real_dispatch_row():
         dispatch_row["grid_net_import_kw"],
         abs = 0.001,
     )
+
+def test_replay_dispatch_timeseries_meets_network_limits():
+    project_root = Path(__file__).resolve().parents[1]
+
+    dispatch_data = pd.read_csv(
+        project_root
+        / "results"
+        /
+        "week2_opendss_handoff_combined_real_15min.csv",
+        parse_dates=["timestamp"],
+    )
+
+    replay = replay_dispatch_timeseries(
+        dispatch_data
+    )
+
+    assert len(replay) == 192
+    assert replay["converged"].all()
+    assert(
+        replay["grid_import_error_kw"].abs().max() < 0.001
+    )
+
+    assert(
+        replay["minimum_voltage_pu"].min() >= 0.95
+    )
+    assert(
+        replay["maximum_voltage_pu"].max() <= 1.05
+    )
+    assert(
+        replay["maximum_current_a"].max() <= 100.0
+    )
+
+    
 

@@ -5,13 +5,22 @@ import math
 from dataclasses import dataclass
 from enum import Enum 
 from collections.abc import Sequence
-from opendss_models import(
-    FeederMetrics,
-    LineLoadingAssessment,
-    LoadingStatus,
-    VoltageAssessment,
-)
 import pandas as pd
+
+try:
+    from .opendss_models import (
+        FeederMetrics,
+        LineLoadingAssessment,
+        LoadingStatus,
+        VoltageAssessment,
+    )
+except ImportError:
+    from opendss_models import (
+        FeederMetrics,
+        LineLoadingAssessment,
+        LoadingStatus,
+        VoltageAssessment,
+    )
 
 # CktElement.Powers() returnns alternating real and reactive
 # power for each phase and terminal
@@ -117,6 +126,102 @@ def add_replay_resources()-> None:
 
     dss.Solution.Solve()
 
+def replay_dispatch_timeseries(
+        dispatch_data: pd.DataFrame,
+)-> pd.DataFrame:
+    """Replay an optimizer dispatch schedule through OpenDSS"""
+
+    required_columns = {
+        "timestamp",
+        "load_kw",
+        "pv_kw",
+        "battery_net_injection_kw",
+        "grid_net_import_kw",
+        "battery_soc_kWh",
+    }
+
+    missing_columns = (
+        required_columns - set(dispatch_data.columns)
+    )
+
+    if missing_columns:
+        raise ValueError(
+            "Dispatch replay is missing required column: "
+            f"{sorted(missing_columns)}"
+        )
+
+    if dispatch_data.empty:
+        raise ValueError(
+            "Dispatch replay data must not be empty."
+        )
+
+    create_base_circuit()
+    add_replay_resources()
+
+    replay_records = []
+
+    for _, dispatch_row in dispatch_data.iterrows():
+        apply_dispatch_operating_point(
+            dispatch_row
+        )
+
+        feeder_metrics = calculate_feeder_metrics()
+
+        dss.Circuit.SetActiveBus("load_bus")
+        voltage_values = dss.Bus.puVmagAngle()
+
+        if voltage_values is None:
+            raise RuntimeError(
+                "OpenDSS did not return load-bus voltages."
+            )
+
+        phase_voltages_pu = voltage_values[0::2]
+
+        receiving_end_real_power_kw = (
+            feeder_metrics.input_real_power_kw
+            - feeder_metrics.real_loss_kw
+        )
+
+        scheduled_grid_import_kw = float(
+            dispatch_row["grid_net_import_kw"]
+        )
+
+        replay_records.append(
+            {
+                "timestamp": dispatch_row["timestamp"],
+                "converged": bool(
+                    dss.Solution.Converged()
+                ),
+                "minimum_voltage_pu": min(
+                    phase_voltages_pu
+                ),
+                "maximum_voltage_pu": max(
+                    phase_voltages_pu
+                ),
+                "maximum_current_a": max(
+                    feeder_metrics.phase_currents_a
+                ),
+                "source_real_power_kw": (
+                    feeder_metrics.input_real_power_kw
+                ),
+                "feeder_real_loss_kw": (
+                    feeder_metrics.real_loss_kw
+                ),
+                "scheduled_grid_import_kw": (
+                    scheduled_grid_import_kw
+                ),
+                "receiving_end_real_power_kw": (
+                    receiving_end_real_power_kw
+                ),
+                "grid_import_error_kw": (
+                    receiving_end_real_power_kw
+                    - scheduled_grid_import_kw
+                ),
+            }
+        )
+
+
+    return pd.DataFrame(replay_records)
 
 def apply_dispatch_operating_point(
         dispatch_row: pd.Series,
