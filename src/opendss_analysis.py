@@ -11,6 +11,7 @@ from opendss_models import(
     LoadingStatus,
     VoltageAssessment,
 )
+import pandas as pd
 
 # CktElement.Powers() returnns alternating real and reactive
 # power for each phase and terminal
@@ -80,6 +81,131 @@ def create_base_circuit() -> tuple[str, list[float]]:
 
     return dss.Circuit.Name(), phase_voltages_pu
 
+def add_replay_resources()-> None:
+    """Add the PV system and battery used for dispatch replay"""
+
+    dss.Text.Command(
+        "New PVSystem.RooftopPV "
+        "bus1=load_bus.1.2.3 "
+        "phases=3 "
+        "conn=wye "
+        "kv=12.47 "
+        "kVA=30 "
+        "Pmpp=30 "
+        "irradiance=0 "
+        "pf=1.0 "
+        "%CutIn=0 "
+        "%CutOut=0"
+    )
+
+    dss.Text.Command(
+        "New Storage.Battery "
+        "bus1=load_bus.1.2.3 "
+        "phases=3 "
+        "conn=wye "
+        "kv=12.47 "
+        "kVA=5 "
+        "kWrated=5 "
+        "kWhrated=20 "
+        "%stored=50 "
+        "%reserve=10 "
+        "%EffCharge=95 "
+        "%IdlingkW=0 "
+        "DispMode=EXTERNAL "
+        "state=IDLING"
+    )
+
+    dss.Solution.Solve()
+
+
+def apply_dispatch_operating_point(
+        dispatch_row: pd.Series,
+        *,
+        pv_rated_kw: float = 30.0,
+        battery_capacity_kWh: float = 20.0,
+        zero_tolerance_kw: float = 1e-6,
+)-> None:
+    """Apply one optimizer dispatch row to the OpenDSS circuit"""
+
+    required_columns = {
+        "load_kw",
+        "pv_kw",
+        "battery_net_injection_kw",
+        "battery_soc_kWh",
+    }
+
+    missing_columns = (
+        required_columns - set(dispatch_row.index)
+    )
+
+    if missing_columns:
+        raise ValueError(
+            "Dispatch row is missing required columns: "
+            f"{sorted(missing_columns)}"
+        )
+
+    load_kw = float(dispatch_row["load_kw"])
+    pv_kw = float(dispatch_row["pv_kw"])
+    battery_net_injection_kw = float(
+        dispatch_row["battery_net_injection_kw"]
+    )
+    battery_soc_kWh = float(
+        dispatch_row["battery_soc_kWh"]
+    )
+
+    if not 0.0 <= pv_kw <= pv_rated_kw:
+        raise ValueError(
+            "PV power must be set between zero and its rating."
+        )
+
+    if not 0.0 <= battery_soc_kWh <= battery_capacity_kWh:
+        raise ValueError(
+            "Battery Energy must be between zero and capacity."
+        )
+    
+    # irradiance is effectively a normalized solar availability
+    # value because OpenDSS defines 1.0 as the reference irradiance of 1kW/m^2
+    # Temperature derating or inverter efficiency curve will be 
+    # introduced for later use
+    pv_irradiance = pv_kw / pv_rated_kw
+
+    battery_soc_percent = (
+        battery_soc_kWh
+        / battery_capacity_kWh
+        * 100
+    )
+
+    if battery_net_injection_kw > zero_tolerance_kw:
+        battery_state = "DISCHARGING"
+    elif battery_net_injection_kw < -zero_tolerance_kw:
+        battery_state = "CHARGING"
+    else:
+        battery_state = "IDLING"
+        battery_net_injection_kw = 0.0
+
+    dss.Text.Command(
+        "Edit Load.Building "
+        f"kW={load_kw}"
+    )
+
+    dss.Text.Command(
+        "Edit PVSystem.RooftopPV "
+        f"irradiance={pv_irradiance}"
+    )
+
+    dss.Text.Command(
+        "Edit Storage.Battery "
+        "DispMode=EXTERNAL "
+        f"%stored={battery_soc_percent} "
+        f"state={battery_state} " 
+        f"kW={battery_net_injection_kw}"
+    )
+
+    dss.Solution.Solve()
+
+    return None
+
+    
 def calculate_feeder_metrics(
         line_name: str = "Line.Feeder",
 ) -> FeederMetrics:
@@ -252,6 +378,8 @@ def main ()-> None:
     circuit_name, load_phase_voltages_pu = (
         create_base_circuit()
     )
+    # add battery and PV
+    add_replay_resources()
 
     # Select the feeder and collect its reusable
     # current, power, power-factor, and loss metrics
@@ -457,6 +585,8 @@ def main ()-> None:
         f"{voltage_assessment.within_limits}"
     )
 
+    print(f"\nPV systems: {dss.PVsystems.AllNames()}")
+    print(f"Storage units: {dss.Storages.AllNames()}")
 
 
 if __name__ == "__main__":

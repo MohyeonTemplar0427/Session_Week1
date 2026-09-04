@@ -1,5 +1,6 @@
 import opendssdirect as dss
 import pytest
+import pandas as pd
 
 from src.opendss_analysis import (
     LoadingStatus,
@@ -8,6 +9,8 @@ from src.opendss_analysis import (
     calculate_feeder_metrics,
     classify_line_loading,
     create_base_circuit,
+    add_replay_resources,
+    apply_dispatch_operating_point
 )
 
 def test_create_base_circuit_solves_balanced_feeder():
@@ -160,3 +163,72 @@ def test_assess_line_loading_uses_maximum_phase():
     assert result.emergency_loading_percent == pytest.approx(88.0)
 
     assert result.status == LoadingStatus.EMERGENCY
+
+def test_add_replay_resources_creates_pv_and_battery():
+    create_base_circuit()
+
+    add_replay_resources()
+
+    assert dss.PVsystems.AllNames() == [
+        "rooftoppv"
+    ]
+    assert dss.Storages.AllNames() == [
+        "battery",
+    ]
+
+    assert dss.Solution.Converged()
+
+def test_apply_dispatch_operating_point_uses_real_dispatch_row():
+    create_base_circuit()
+    add_replay_resources()
+
+    dispatch_row = pd.Series(
+        {
+            "load_kw": 25.0,
+            "pv_kw": 24.944088,
+            "battery_net_injection_kw": -4.308915,
+            "battery_soc_kWh": 11.023367,
+            "grid_net_import_kw": 4.364827
+        }
+    )
+
+    apply_dispatch_operating_point(
+        dispatch_row
+    )
+
+    dss.Text.Command("? Load.Building.kW")
+    load_kw = float(dss.Text.Result())
+
+    dss.Text.Command("? PVSystem.RooftopPV.irradiance")
+    pv_irradiance = float(dss.Text.Result())
+
+    dss.Text.Command("? Storage.Battery.kW")
+    battery_kw = float(dss.Text.Result())
+
+    dss.Text.Command("? Storage.Battery.%stored")
+    battery_soc_percent = float(dss.Text.Result())
+
+    feeder_metrics = calculate_feeder_metrics()
+
+    receiving_end_real_power_kw = (
+        feeder_metrics.input_real_power_kw
+        - feeder_metrics.real_loss_kw
+    )
+
+    assert dss.Solution.Converged()
+    assert load_kw == pytest.approx(25.0)
+    assert pv_irradiance == pytest.approx(
+        24.944088 / 30.0
+    )
+    assert battery_kw == pytest.approx(
+        -4.308915
+    )
+    assert battery_soc_percent == pytest.approx(
+        11.023367 / 20.0 * 100
+    )
+
+    assert receiving_end_real_power_kw == pytest.approx(
+        dispatch_row["grid_net_import_kw"],
+        abs = 0.001,
+    )
+
