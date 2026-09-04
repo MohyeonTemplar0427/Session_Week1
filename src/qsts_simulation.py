@@ -6,11 +6,13 @@ import pandas as pd
 
 try:
     from.qsts_analysis import(
-        create_no_battery_replay_schedule
+        create_no_battery_replay_schedule,
+        create_qsts_scenario_comparison,
     )
 except ImportError:
     from qsts_analysis import(
-        create_no_battery_replay_schedule
+        create_no_battery_replay_schedule,
+        create_qsts_scenario_comparison,
     )
 
 try:
@@ -42,6 +44,18 @@ def main() -> None:
         "week3_qsts_simulation_results.csv"
     )
 
+    no_battery_output_path = (
+        project_root
+        / "results"
+        / "week3_qsts_no_battery_results.csv"
+    )
+
+    comparison_output_path = (
+        project_root
+        / "results"
+        / "week3_qsts_scenario_comparison.csv"
+    )
+
     dispatch_data = pd.read_csv(
         dispatch_path,
         parse_dates=["timestamp"],
@@ -60,6 +74,16 @@ def main() -> None:
     no_battery_results = (
         replay_dispatch_timeseries(
             no_battery_dispatch
+        )
+    )
+
+    scenario_comparison = (
+        create_qsts_scenario_comparison(
+            {
+                "optimized": replay_results,
+                "no_battery": no_battery_results,
+            },
+            timestep_hours=0.25
         )
     )
 
@@ -90,6 +114,16 @@ def main() -> None:
 
     replay_results.to_csv(
         output_path,
+        index=False,
+    )
+
+    no_battery_results.to_csv(
+        no_battery_output_path,
+        index=False,
+    )
+
+    scenario_comparison.to_csv(
+        comparison_output_path,
         index=False,
     )
 
@@ -157,6 +191,22 @@ def main() -> None:
     print(
         "Feeder-loss energy reduction (%): "
         f"{loss_reduction_percentage:.3f}"
+    )
+
+    print("\n=== QSTS Scenario Summary ===")
+    print(
+        scenario_comparison.to_string(
+            index=False
+        )
+    )
+
+    print(
+        f"Saved no-battery results: "
+        f"{no_battery_output_path}"
+    )
+    print(
+        f"Saved scenario comparison: "
+        f"{comparison_output_path}"
     )
 
 if __name__ == "__main__":

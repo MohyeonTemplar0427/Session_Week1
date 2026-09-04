@@ -52,3 +52,78 @@ def create_no_battery_replay_schedule(
             (-net_site_load_kw).clip(lower=0.0)
         )    
     return no_battery_data
+
+def create_qsts_scenario_comparison(
+        scenario_results: dict[str, pd.DataFrame],
+        *,
+        timestep_hours: float = 0.25,
+)-> pd.DataFrame:
+    """Summarize electrical results for multiple QSTS scenarios."""
+
+    if not scenario_results:
+        raise ValueError(
+            "At least one QSTS scenario is required."
+        )
+
+    if timestep_hours <= 0:
+        raise ValueError(
+            "Timestep hours must be positive."
+        )
+
+    required_columns = {
+        "converged",
+        "minimum_voltage_pu",
+        "maximum_voltage_pu",
+        "maximum_current_a",
+        "scheduled_grid_import_kw",
+        "feeder_real_loss_kw",
+    }
+
+    comparison_records = []
+
+    for scenario_name, results in scenario_results.items():
+        missing_columns = (
+            required_columns - set(results.columns)
+        )
+
+        if missing_columns:
+            raise ValueError(
+                f"{scenario_name} QSTS results are missing"
+                f"required columns: {sorted(missing_columns)}"
+            )
+
+        if results.empty:
+            raise ValueError(
+                f"{scenario_name} QSTS results must not be empty."
+            )
+
+        comparison_records.append(
+            {
+                "scenario": scenario_name,
+                "interval_count": len(results),
+                "converged_intervals": int(
+                    results["converged"].sum()
+                ),
+                "minimum_voltage_pu": (
+                    results["minimum_voltage_pu"].min()
+                ),
+                "maximum_current_a": (
+                    results["maximum_current_a"].max()
+                ),
+                "maximum_voltage_pu": (
+                    results["maximum_voltage_pu"].max()
+                ),
+                "peak_grid_import_kw": (
+                    results["scheduled_grid_import_kw"].max()
+                ),
+                "minimum_grid_power_kw": (
+                    results["scheduled_grid_import_kw"].min()
+                ),
+                "feeder_loss_energy_kWh": (
+                    results["feeder_real_loss_kw"].sum()
+                    * timestep_hours
+                ),
+            }
+        )
+
+    return pd.DataFrame(comparison_records)

@@ -5,6 +5,7 @@ import pytest
 
 from src.qsts_analysis import(
     create_no_battery_replay_schedule,
+    create_qsts_scenario_comparison
 )
 
 def test_create_no_battery_replay_schedule():
@@ -51,3 +52,82 @@ def test_create_no_battery_replay_schedule():
     assert result["grid_export_kw"].tolist() == (
         pytest.approx([0.0, 3.0])
     )
+
+def test_create_qsts_scenario_comparison():
+    optimized_results = pd.DataFrame(
+        {
+            "converged": [True, True],
+            "minimum_voltage_pu": [0.99, 0.98],
+            "maximum_voltage_pu": [1.01, 1.02],
+            "maximum_current_a": [20.0, 30.0],
+            "scheduled_grid_import_kw": [10.0, -2.0],
+            "feeder_real_loss_kw": [1.0, 3.0],
+        }
+    )
+
+    no_battery_results = pd.DataFrame(
+        {
+            "converged": [True, False],
+            "minimum_voltage_pu": [0.97, 0.96],
+            "maximum_voltage_pu": [1.00, 1.01],
+            "maximum_current_a": [25.0, 35.0],
+            "scheduled_grid_import_kw": [12.0, -4.0],
+            "feeder_real_loss_kw": [2.0, 4.0],
+        }
+    )
+
+    comparison = (
+        create_qsts_scenario_comparison(
+            {
+                "optimized": optimized_results,
+                "no_battery": no_battery_results,
+            },
+            timestep_hours=0.25,
+        )
+        .set_index("scenario")
+    )
+
+    assert comparison.loc[
+        "optimized",
+        "interval_count",
+    ] == 2
+
+    assert comparison.loc[
+        "optimized",
+        "converged_intervals",
+    ] == 2
+
+    assert comparison.loc[
+        "no_battery",
+        "converged_intervals",
+    ] == 1
+
+    assert comparison.loc[
+        "optimized",
+        "minimum_voltage_pu",
+    ] == pytest.approx(0.98)
+
+    assert comparison.loc[
+        "optimized",
+        "maximum_current_a",
+    ] == pytest.approx(30.0)
+
+    assert comparison.loc[
+        "optimized",
+        "peak_grid_import_kw",
+    ] == pytest.approx(10.0)
+
+    assert comparison.loc[
+        "optimized",
+        "minimum_grid_power_kw",
+    ] == pytest.approx(-2.0)
+
+    assert comparison.loc[
+        "optimized",
+        "feeder_loss_energy_kWh",
+    ] == pytest.approx(1.0)
+
+    assert comparison.loc[
+        "no_battery",
+        "feeder_loss_energy_kWh",
+    ] == pytest.approx(1.5)
