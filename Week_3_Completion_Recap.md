@@ -1,285 +1,200 @@
-# Week 3 Completion Recap — OpenDSS Distribution-System Analysis
+# Revised Week 3 Completion Recap - OpenDSS Fundamentals
 
 ## Completion Status
 
-Week 3 is complete.
+Revised Week 3 is complete.
 
-The project now connects the Week 1–2 microgrid optimizer to an OpenDSS distribution-system model. Optimized dispatch schedules can be replayed through a three-phase feeder and evaluated for voltage, current, convergence, power balance, and electrical losses.
+The project now contains a documented and tested radial distribution
+model with a point of common coupling, distribution transformer,
+low-voltage service feeder, building load, PV location, and storage
+location.
 
 Final validation:
 
-- 51 automated tests passed.
-- All 192 optimized QSTS intervals converged.
-- All 192 no-battery QSTS intervals converged.
-- Python package imports were standardized.
-- Command-line module execution was validated.
-- VS Code module launch configurations were validated.
+- 56 automated tests passed.
+- The base power flow converged.
+- Load-bus voltage remained within the 0.95-1.05 pu range.
+- The service feeder remained below its normal current rating.
+- The service transformer remained below its kVA rating.
+- PCC import and export signs were verified.
+- Snapshot and Daily solution modes were demonstrated.
 
-## Session 1 — OpenDSS Fundamentals
+## Circuit Topology
 
-Session 1 introduced the core OpenDSS circuit model:
+The revised feeder contains:
 
-- Circuit and voltage source
-- Electrical buses
-- Three-phase conductors
-- Feeder line
-- Balanced three-phase load
-- Per-unit voltage
-- Power-flow convergence
+1. A 12.47 kV utility source.
+2. `pcc_bus`, the point of common coupling.
+3. `Transformer.ServiceTransformer`.
+4. `service_bus` at 0.48 kV.
+5. `Line.Feeder` between the service and load buses.
+6. `load_bus` at 0.48 kV.
+7. The building load, rooftop PV, and battery location.
 
-The initial circuit contains:
+The one-line diagram is documented in
+`Week_3_One_Line_Diagram.md`.
 
-- `source_bus`
-- `load_bus`
-- `Line.Feeder`
-- `Load.Building`
+## Transformer Model
 
-The base 500 kW demonstration produced balanced load-bus voltages of approximately 0.9988 pu.
+The service transformer uses:
 
-## Session 2 — Feeder Electrical Metrics
+- Three phases
+- Two windings
+- Primary voltage: 12.47 kV
+- Secondary voltage: 0.48 kV
+- Primary connection: delta
+- Secondary connection: grounded wye
+- Rating: 750 kVA
+- Resistance: 0.5% per winding
+- Leakage reactance: 5.75%
 
-Session 2 added reusable electrical measurements:
+The 500 kW building load at 0.95 power factor requires approximately:
 
-- Phase-current magnitude
-- Real power in kW
-- Reactive power in kvar
-- Apparent power in kVA
-- Power factor
-- Real feeder loss
-- Reactive-power absorption
-- Percentage feeder loss
+$$
+S = \frac{500\text{ kW}}{0.95} = 526.3\text{ kVA}
+$$
 
-The OpenDSS feeder loss was independently checked using:
+The 750 kVA rating therefore provides capacity above the nominal load.
 
-$$P_{\text{loss}} = \sum I_{\text{phase}}^2R$$
+## Low-Voltage Service Feeder
 
-The manual calculation and OpenDSS result differed by only approximately 0.0423 W.
+Moving the building from 12.47 kV to 0.48 kV increases current
+substantially. The low-voltage feeder was therefore revised to use:
 
-Reusable results are stored in immutable dataclasses to prevent accidental modification after a simulation.
+- Length: 0.1 km
+- Positive-sequence resistance: 0.02 ohm/km
+- Positive-sequence reactance: 0.04 ohm/km
+- Zero-sequence resistance: 0.04 ohm/km
+- Zero-sequence reactance: 0.08 ohm/km
+- Normal rating: 800 A
+- Emergency rating: 1000 A
 
-## Session 3 — Engineering Limit Assessments
+These values replace the former 1 km, 100 A medium-voltage feeder
+assumption.
 
-Session 3 added engineering-limit evaluation:
+## Base-Case Results
 
-- Normal current rating
-- Emergency current rating
-- Maximum phase-current loading
-- Normal, emergency, and above-emergency classifications
-- Minimum and maximum bus voltage
-- Voltage-limit compliance
+With the building at 500 kW and 0.95 power factor, the revised base
+case produced approximately:
 
-Enums provide explicit loading states, and parameterized tests verify classification boundaries.
+| Metric | Result |
+|---|---:|
+| Load-bus voltage | 0.9716 pu |
+| Maximum feeder current | 651.4 A |
+| Feeder normal loading | 81.4% |
+| Feeder real-power loss | 2.55 kW |
+| Transformer apparent power | 541.5 kVA |
+| Transformer loading | 72.2% |
+| Transformer real-power loss | 3.91 kW |
+| PCC net grid import | 506.4 kW |
+| Reverse power flow | No |
 
-The demonstration feeder uses:
+The base case satisfies the defined voltage, line-loading, and
+transformer-loading limits.
 
-- Normal rating: 100 A
-- Emergency rating: 125 A
-- Normal voltage limits: 0.95–1.05 pu
+## Point of Common Coupling
 
-## Session 4 — QSTS Dispatch Replay
+The PCC is `pcc_bus`, located at the transformer primary.
 
-Session 4 connected the optimized dispatch schedule to OpenDSS.
+Transformer terminal-1 power therefore represents utility exchange:
 
-The replay model includes:
+- Positive real power means grid import.
+- Negative real power means grid export.
+- Negative net import is classified as reverse power flow.
 
-- 30 kW PV system
-- 20 kWh battery
-- 5 kW battery inverter
-- 10–90% permitted SOC range
-- 95% charging efficiency
-- 95% discharging efficiency
-- External battery dispatch control
+Focused tests verify both the normal import case and a deliberate PV
+export case.
 
-The optimizer and OpenDSS use the same battery power convention:
+## Solution Modes
 
-- Positive battery net injection means discharging.
-- Negative battery net injection means charging.
-- Values near zero are treated as idling to suppress numerical noise.
+The base feeder explicitly selects OpenDSS Snapshot mode. Snapshot
+solves one steady-state operating point and is reported by
+OpenDSSDirect as mode `0`.
 
-PV output is reproduced using:
-
-$$\text{irradiance} = \frac{P_{\text{PV}}}{P_{\text{PV,rated}}}$$
-
-The optimizer's grid-power balance was verified against the OpenDSS feeder:
-
-$$P_{\text{source}} - P_{\text{feeder loss}} \approx P_{\text{scheduled grid}}$$
-
-The largest observed power-balance error was approximately 0.000002552 kW, or 0.0026 W.
-
-## Why QSTS Is Used
-
-Quasi-static time-series simulation repeatedly solves steady-state power flow as load, PV, and battery conditions change.
-
-The present experiment contains 192 intervals:
-
-$$2\text{ days} \times 24\text{ hours/day} \times 4\text{ intervals/hour} = 192\text{ intervals}$$
-
-QSTS is appropriate because the optimizer schedules resources every 15 minutes, while most fast electrical transients settle much sooner. It captures slow operating changes without requiring a millisecond-scale simulation of every interval.
-
-QSTS evaluates:
-
-- Voltage variation
-- Feeder loading
-- Power-flow convergence
-- Real and reactive power
-- Feeder losses
-- Reverse power flow
-- Dispatch feasibility
-
-QSTS does not evaluate:
-
-- Switching transients
-- Detailed inverter-control dynamics
-- Fault current and protection coordination
-- Harmonics
-- Electromagnetic transients
-
-Those studies require OpenDSS dynamics features or a dedicated transient simulation tool with much smaller timesteps.
-
-## Session 5 — QSTS Scenario Analytics
-
-Session 5 compared two scenarios using the same circuit and load/PV conditions:
-
-1. Optimized battery dispatch
-2. No-battery counterfactual
-
-### Scenario Results
-
-| Metric | Optimized | No battery |
-|---|---:|---:|
-| Intervals | 192 | 192 |
-| Converged intervals | 192 | 192 |
-| Minimum voltage | 0.999922 pu | 0.999922 pu |
-| Maximum voltage | 0.999975 pu | 0.999982 pu |
-| Maximum feeder current | 1.473286 A | 1.473286 A |
-| Peak grid import | 29.517612 kW | 29.517612 kW |
-| Minimum grid power | 0.000000 kW | −4.935768 kW |
-| Feeder-loss energy | 0.020824 kWh | 0.021343 kWh |
-
-The optimized battery reduced feeder-loss energy by approximately:
-
-$$0.021343 - 0.020824 = 0.000519\text{ kWh}$$
-
-This represents an approximately 2.434% reduction relative to the no-battery baseline.
-
-### Engineering Interpretation
-
-The optimized battery:
-
-- Eliminated approximately 4.94 kW of reverse power flow.
-- Slightly reduced the maximum feeder voltage.
-- Reduced cumulative feeder-loss energy.
-- Did not reduce peak grid import.
-- Did not reduce maximum feeder current.
-- Did not improve the minimum-voltage operating point.
-
-Peak demand, maximum current, maximum loss, and minimum voltage occurred during the same interval. At that time:
-
-- Load was 36.75 kW.
-- PV output was approximately 7.23 kW.
-- Battery net injection was 0 kW.
-- Grid import was approximately 29.52 kW.
-
-The battery was optimized for operating cost and carbon emissions, not feeder peak reduction. It was therefore idle during the most demanding network interval.
-
-## Python and Software-Engineering Skills
-
-Week 3 introduced or reinforced:
-
-- Python modules and package structure
-- `__init__.py`
-- Package-relative imports
-- Module execution with `python -m`
-- VS Code module launch configurations
-- Immutable dataclasses
-- Enums
-- Tuple type annotations
-- Pandas row iteration
-- `idxmin()`, `idxmax()`, and `.loc[]`
-- Vectorized clipping
-- Counterfactual scenario creation
-- Time-series aggregation
-- Engineering acceptance tests
-- Separation of models, calculations, analytics, and orchestration
-
-## Project Organization
-
-Week 3 functionality is divided into:
-
-- `src/__init__.py` — explicit Python package definition
-- `src/opendss_models.py` — result dataclasses and enums
-- `src/opendss_analysis.py` — circuit construction and electrical analysis
-- `src/qsts_analysis.py` — baseline generation and scenario aggregation
-- `src/qsts_simulation.py` — file input/output and simulation orchestration
-- `test/test_opendss_analysis.py` — OpenDSS circuit and replay tests
-- `test/test_qsts_analysis.py` — QSTS transformation and aggregation tests
-- `.vscode/launch.json` — module-based VS Code launch configurations
-
-## Generated Artifacts
-
-- `results/week3_qsts_simulation_results.csv`
-- `results/week3_qsts_no_battery_results.csv`
-- `results/week3_qsts_scenario_comparison.csv`
-
-## Commands
-
-Run the base feeder analysis:
-
-```bash
-/usr/local/bin/python3 -m src.opendss_analysis
-```
-
-Run the complete QSTS simulation and comparison:
-
-```bash
-/usr/local/bin/python3 -m src.qsts_simulation
-```
-
-Run all automated tests:
+Daily mode was demonstrated with four 15-minute steps. OpenDSS
+advanced from hour 0 to hour 1 and remained converged. Daily mode is
+reported as mode `1`.
+
+The existing Python QSTS workflow is an externally controlled sequence
+of Snapshot solutions. Python applies each dispatch row, while
+OpenDSS solves the corresponding electrical operating point.
+
+Further details are documented in
+`Week_3_OpenDSS_Solution_Modes.md`.
+
+## Software and Testing
+
+Week 3 added or updated:
+
+- Immutable transformer and PCC result dataclasses
+- Transformer power, loading, and loss calculation
+- PCC import, export, and reverse-flow calculation
+- Explicit Snapshot-mode configuration
+- Transformer and low-voltage resource modeling
+- Focused numerical tests
+- Import and export sign tests
+- Integrated base-case electrical acceptance test
+- Command-line transformer and PCC reporting
+
+Run the complete suite with:
 
 ```bash
 /usr/local/bin/python3 -m pytest -q
 ```
 
-## Current Modeling Limitations
+Run the focused base analysis with:
 
-The present model intentionally remains simple:
+```bash
+/usr/local/bin/python3 -m src.opendss_analysis
+```
 
-- PV, battery, and load connect directly at 12.47 kV.
-- No distribution transformer is modeled.
-- The feeder is balanced.
-- The load uses a fixed 0.95 power factor.
-- PV and battery initially operate at unity power factor.
-- Detailed inverter-efficiency curves are omitted.
-- Battery SOC is prescribed from the optimizer at each timestamp.
-- OpenDSS does not independently integrate and reconcile SOC.
-- The experiment covers only two days.
-- The feeder is lightly loaded and electrically stiff.
+## Current Modeling Assumptions
 
-These limitations explain the very small voltage variation and feeder losses.
+- The circuit is balanced and three-phase.
+- The building load uses a fixed 0.95 power factor.
+- PV and storage operate at unity power factor.
+- PV and storage connect at the 0.48 kV load bus.
+- Detailed inverter-efficiency and temperature curves are omitted.
+- Battery SOC is prescribed by Python during dispatch replay.
+- OpenDSS does not independently integrate battery SOC.
+- Protection, harmonics, and electromagnetic transients are outside
+  the present scope.
 
-## Recommended Future Development
+## Future Model Improvements
 
-The following improvements are deferred rather than added as unnecessary Week 3 sessions:
+Future development should replace representative electrical values
+with equipment-specific parameters derived from utility data,
+nameplates, datasheets, or field measurements. Important additions
+include:
 
-- Add a distribution transformer and low-voltage service network.
-- Model unbalanced phase loading.
-- Independently integrate battery SOC in OpenDSS.
-- Add inverter-efficiency and temperature curves.
-- Add Volt-VAR and Volt-Watt controls.
-- Include regulator and capacitor controls.
-- Add feeder-aware peak and voltage constraints to the optimizer.
-- Simulate longer weekly, monthly, and seasonal horizons.
-- Study fault current and protection coordination.
-- Evaluate harmonics and inverter interactions.
-- Use dynamic or electromagnetic-transient simulation where fast response matters.
+- Utility-source short-circuit strength and X/R ratio
+- Transformer no-load loss, magnetizing current, taps, grounding,
+  and tested winding impedance
+- Feeder conductor type, ampacity, phase spacing, neutral impedance,
+  capacitance, and actual route length
+- Grounding-electrode and neutral connections
+- Voltage-dependent ZIP load behavior and measured reactive power
+- PV-inverter and battery-inverter efficiency curves, reactive-power
+  capability, temperature derating, and control settings
+- Verified normal and emergency equipment ratings
+
+These parameters would improve voltage-drop, loss, loading, fault,
+and DER-response accuracy. They are deferred until suitable source
+data are available and are not required to close revised Week 3.
 
 ## Week 4 Readiness
 
-The project is ready to advance beyond Week 3.
+Revised Week 3 is complete, but Gate C remains open until Week 4 is
+complete.
 
-It now contains a tested workflow connecting:
+Week 4 must replay and compare:
 
-$$\text{Real market data} \rightarrow \text{Battery optimization} \rightarrow \text{OpenDSS dispatch replay} \rightarrow \text{Network-impact analysis}$$
+- No battery
+- Rule-based dispatch
+- Cost-optimal dispatch
+- Carbon-optimal dispatch
+- Combined optimal dispatch
 
-Future curriculum work can build on this workflow without repeating the Python, optimization, validation, or OpenDSS fundamentals already completed.
+Each scenario must report voltage, line loading, transformer loading,
+losses, reverse power flow, constraint violations, and infeasible
+intervals in a machine-readable format.

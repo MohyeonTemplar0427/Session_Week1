@@ -82,6 +82,10 @@ def create_base_circuit() -> tuple[str, list[float]]:
 
     dss.Text.Command("CalcVoltageBases")
 
+    dss.Text.Command(
+        "Set Mode=Snapshot"
+    )
+
     dss.Solution.Solve()
 
     if not dss.Solution.Converged():

@@ -25,6 +25,7 @@ def test_create_base_circuit_solves_balanced_feeder():
 
     assert circuit_name == "microgrid"
     assert dss.Solution.Converged()
+    assert dss.Solution.Mode() == 0 # 0 is snapshot mode for OpenDSS
 
     bus_names = dss.Circuit.AllBusNames()
     assert bus_names is not None
@@ -109,6 +110,41 @@ def test_calculate_transformer_metrics_matches_base_case():
         22.4885,
         abs=0.0001,
     )
+
+def test_base_case_meets_electrical_limits():  # NEW
+    _, phase_voltages_pu = create_base_circuit()
+
+    feeder_metrics = calculate_feeder_metrics()
+
+    dss.Circuit.SetActiveElement(
+        "Line.Feeder"
+    )
+
+    normal_amps = dss.CktElement.NormalAmps()
+    emergency_amps = dss.CktElement.EmergAmps()
+
+    assert normal_amps is not None
+    assert emergency_amps is not None
+
+    voltage_assessment = assess_voltage_limits(
+        phase_voltages_pu
+    )
+
+    line_assessment = assess_line_loading(
+        feeder_metrics.phase_currents_a,
+        normal_amps=normal_amps,
+        emergency_amps=emergency_amps,
+    )
+
+    transformer_metrics = (
+        calculate_transformer_metrics()
+    )
+
+    assert voltage_assessment.within_limits
+    assert line_assessment.status is LoadingStatus.NORMAL
+    assert line_assessment.normal_loading_percent < 100.0
+    assert transformer_metrics.loading_percent < 100.0
+
 
 def test_calculate_pcc_metrics_reports_grid_import():
     create_base_circuit()
