@@ -51,11 +51,7 @@ Session 2 added reusable electrical measurements:
 
 The OpenDSS feeder loss was independently checked using:
 
-$$
-P_{\text{loss}}
-=
-\sum I_{\text{phase}}^2R
-$$
+$$P_{\text{loss}} = \sum I_{\text{phase}}^2R$$
 
 The manual calculation and OpenDSS result differed by only approximately 0.0423 W.
 
@@ -102,21 +98,11 @@ The optimizer and OpenDSS use the same battery power convention:
 
 PV output is reproduced using:
 
-$$
-\text{irradiance}
-=
-\frac{P_{\text{PV}}}{P_{\text{PV,rated}}}
-$$
+$$\text{irradiance} = \frac{P_{\text{PV}}}{P_{\text{PV,rated}}}$$
 
 The optimizer's grid-power balance was verified against the OpenDSS feeder:
 
-$$
-P_{\text{source}}
--
-P_{\text{feeder loss}}
-\approx
-P_{\text{scheduled grid}}
-$$
+$$P_{\text{source}} - P_{\text{feeder loss}} \approx P_{\text{scheduled grid}}$$
 
 The largest observed power-balance error was approximately 0.000002552 kW, or 0.0026 W.
 
@@ -126,15 +112,7 @@ Quasi-static time-series simulation repeatedly solves steady-state power flow as
 
 The present experiment contains 192 intervals:
 
-$$
-2\text{ days}
-\times
-24\text{ hours/day}
-\times
-4\text{ intervals/hour}
-=
-192\text{ intervals}
-$$
+$$2\text{ days} \times 24\text{ hours/day} \times 4\text{ intervals/hour} = 192\text{ intervals}$$
 
 QSTS is appropriate because the optimizer schedules resources every 15 minutes, while most fast electrical transients settle much sooner. It captures slow operating changes without requiring a millisecond-scale simulation of every interval.
 
@@ -180,11 +158,7 @@ Session 5 compared two scenarios using the same circuit and load/PV conditions:
 
 The optimized battery reduced feeder-loss energy by approximately:
 
-$$
-0.021343-0.020824
-=
-0.000519\text{ kWh}
-$$
+$$0.021343 - 0.020824 = 0.000519\text{ kWh}$$
 
 This represents an approximately 2.434% reduction relative to the no-battery baseline.
 
@@ -306,14 +280,6 @@ The project is ready to advance beyond Week 3.
 
 It now contains a tested workflow connecting:
 
-$$
-\text{Real market data}
-\rightarrow
-\text{Battery optimization}
-\rightarrow
-\text{OpenDSS dispatch replay}
-\rightarrow
-\text{Network-impact analysis}
-$$
+$$\text{Real market data} \rightarrow \text{Battery optimization} \rightarrow \text{OpenDSS dispatch replay} \rightarrow \text{Network-impact analysis}$$
 
 Future curriculum work can build on this workflow without repeating the Python, optimization, validation, or OpenDSS fundamentals already completed.
