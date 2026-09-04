@@ -4,25 +4,13 @@ from pathlib import Path
 import pandas as pd
 
 
-try:
-    from.qsts_analysis import(
-        create_no_battery_replay_schedule,
-        create_qsts_scenario_comparison,
-    )
-except ImportError:
-    from qsts_analysis import(
-        create_no_battery_replay_schedule,
-        create_qsts_scenario_comparison,
-    )
-
-try:
-    from .opendss_analysis import(
-        replay_dispatch_timeseries
-    )
-except ImportError:
-    from opendss_analysis import (
-        replay_dispatch_timeseries,
-    )
+from .opendss_analysis import (
+    replay_dispatch_timeseries,
+)
+from .qsts_analysis import (
+    create_no_battery_replay_schedule,
+    create_qsts_scenario_comparison,
+)
 
 
 def main() -> None:

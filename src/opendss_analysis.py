@@ -7,20 +7,12 @@ from enum import Enum
 from collections.abc import Sequence
 import pandas as pd
 
-try:
-    from .opendss_models import (
-        FeederMetrics,
-        LineLoadingAssessment,
-        LoadingStatus,
-        VoltageAssessment,
-    )
-except ImportError:
-    from opendss_models import (
-        FeederMetrics,
-        LineLoadingAssessment,
-        LoadingStatus,
-        VoltageAssessment,
-    )
+from .opendss_models import (
+    FeederMetrics,
+    LineLoadingAssessment,
+    LoadingStatus,
+    VoltageAssessment,
+)
 
 # CktElement.Powers() returnns alternating real and reactive
 # power for each phase and terminal
