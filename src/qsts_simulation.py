@@ -1,8 +1,17 @@
-"""Run the Week 3 OpenDSS QSTS dispatch replay."""
-
+"""Run the Week 3 OpenDSS Quasai Static Time Series dispatch replay."""
+## Package import
 from pathlib import Path
-
 import pandas as pd
+
+
+try:
+    from.qsts_analysis import(
+        create_no_battery_replay_schedule
+    )
+except ImportError:
+    from qsts_analysis import(
+        create_no_battery_replay_schedule
+    )
 
 try:
     from .opendss_analysis import(
@@ -12,6 +21,7 @@ except ImportError:
     from opendss_analysis import (
         replay_dispatch_timeseries,
     )
+
 
 def main() -> None:
     """Load, replay, summarize, and save the dispatch schedule."""
@@ -39,6 +49,43 @@ def main() -> None:
 
     replay_results = replay_dispatch_timeseries(
         dispatch_data
+    )
+
+    no_battery_dispatch = (
+        create_no_battery_replay_schedule(
+            dispatch_data
+        )
+    )
+
+    no_battery_results = (
+        replay_dispatch_timeseries(
+            no_battery_dispatch
+        )
+    )
+
+    timestep_hours = 0.25
+
+    optimized_loss_kWh = (
+        replay_results["feeder_real_loss_kw"].sum()
+        * timestep_hours
+    )
+
+    no_battery_loss_kWh = (
+        no_battery_results["feeder_real_loss_kw"].sum()
+        * timestep_hours
+    )
+
+    loss_reduction_kWh = (
+        no_battery_loss_kWh
+        - optimized_loss_kWh
+    )
+
+    loss_reduction_percentage = (
+        loss_reduction_kWh
+        / no_battery_loss_kWh
+        * 100
+        if no_battery_loss_kWh != 0
+        else 0.0
     )
 
     replay_results.to_csv(
@@ -71,6 +118,46 @@ def main() -> None:
     )
 
     print(f"Saved results: {output_path}")
+
+
+
+    print("\n=== QSTS Scenario Comparison ===")
+
+    print(
+        "Optimized minimum voltage (pu): "
+        f"{replay_results['minimum_voltage_pu'].min():.6f}"
+    )
+    print(
+        "No-battery minimum voltage (pu): "
+        f"{no_battery_results['minimum_voltage_pu'].min():.6f}"
+    )
+
+    print(
+        "Optimized maximum current (A): "
+        f"{replay_results['maximum_current_a'].max():.6f}"
+    )
+    print(
+        "No-battery maximum current (A): "
+        f"{no_battery_results['maximum_current_a'].max():.6f}"
+    )
+
+    print(
+        "Optimized feeder-loss energy (kWh): "
+        f"{optimized_loss_kWh:.6f}"
+    )
+    print(
+        "No-battery feeder-loss energy (kWh): "
+        f"{no_battery_loss_kWh:.6f}"
+    )
+
+    print(
+        "Feeder-loss energy reduction (kWh): "
+        f"{loss_reduction_kWh:.6f}"
+    )
+    print(
+        "Feeder-loss energy reduction (%): "
+        f"{loss_reduction_percentage:.3f}"
+    )
 
 if __name__ == "__main__":
     main()

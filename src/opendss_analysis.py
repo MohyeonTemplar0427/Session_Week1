@@ -188,6 +188,18 @@ def replay_dispatch_timeseries(
 
         replay_records.append(
             {
+                "load_kw": float(
+                dispatch_row["load_kw"]
+                ),
+                "pv_kw": float(
+                dispatch_row["pv_kw"]
+                ),
+                "battery_net_injection_kw": float(
+                dispatch_row["battery_net_injection_kw"]
+                ),
+                "battery_soc_kWh": float(
+                dispatch_row["battery_soc_kWh"]
+                ),
                 "timestamp": dispatch_row["timestamp"],
                 "converged": bool(
                     dss.Solution.Converged()
