@@ -26,6 +26,18 @@ class FeederMetrics:
 
 
 @dataclass(frozen=True)
+class TransformerMetrics:
+    """Electrical measurements and loading for a transformer."""
+
+    input_real_power_kw: float
+    input_reactive_power_kvar: float
+    apparent_power_kva: float
+    rated_power_kva: float
+    loading_percent: float
+    real_loss_kw: float
+    reactive_absorption_kvar: float
+
+@dataclass(frozen=True)
 class LineLoadingAssessment:
     """Feeder loading compared with its current ratings."""
 

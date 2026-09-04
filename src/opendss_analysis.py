@@ -11,6 +11,7 @@ from .opendss_models import (
     FeederMetrics,
     LineLoadingAssessment,
     LoadingStatus,
+    TransformerMetrics,
     VoltageAssessment,
 )
 
@@ -21,32 +22,49 @@ from .opendss_models import (
 
 # math.hypot(P,Q) calculates magnitude directly
 # = sqrt(P^2 + Q^2)
+
 def create_base_circuit() -> tuple[str, list[float]]:
-    """Create an empty three-phase microgrid circuit."""
+    """Create the three-phase microgrid base circuit."""
 
     dss.Text.Command("Clear")
 
+    # The PCC is the boundary where the utility grid connects to the
+    # customer microgrid.
     dss.Text.Command(
         "New Circuit.Microgrid "
         "basekv=12.47 "
         "pu=1.0 "
         "phases=3 "
-        "bus1=source_bus"
+        "bus1=pcc_bus"
     )
-    #noramp: normal amp(A), emeramp: emergency amp(A) rating
+
+    dss.Text.Command(
+        "New Transformer.ServiceTransformer "
+        "phases=3 "
+        "windings=2 "
+        "buses=[pcc_bus.1.2.3 service_bus.1.2.3.0] "
+        "conns=[delta wye] "
+        "kVs=[12.47 0.48] "
+        "kVAs=[750 750] "
+        "%Rs=[0.5 0.5] "
+        "XHL=5.75"
+    )
+
+    # normamps: normal ampere rating
+    # emergamps: emergency ampere rating
     dss.Text.Command(
         "New Line.Feeder "
-        "bus1=source_bus.1.2.3 "
+        "bus1=service_bus.1.2.3 "
         "bus2=load_bus.1.2.3 "
         "phases=3 "
-        "length=1 "
+        "length=0.1 "
         "units=km "
-        "r1=0.2 "
-        "x1=0.4 "
-        "r0=0.4 "
-        "x0=0.8 "
-        "normamps=100 "
-        "emergamps=125"
+        "r1=0.02 "
+        "x1=0.04 "
+        "r0=0.04 "
+        "x0=0.08 "
+        "normamps=800 "
+        "emergamps=1000"
     )
 
     dss.Text.Command(
@@ -55,14 +73,16 @@ def create_base_circuit() -> tuple[str, list[float]]:
         "phases=3 "
         "conn=wye "
         "model=1 "
-        "kv=12.47 "
+        "kv=0.48 "
         "kw=500 "
         "pf=0.95"
     )
-    dss.Text.Command("Set VoltageBases=[12.47]")
+    dss.Text.Command("Set VoltageBases=[12.47, 0.48]")
+
     dss.Text.Command("CalcVoltageBases")
 
     dss.Solution.Solve()
+
     if not dss.Solution.Converged():
         raise RuntimeError(
             "OpenDSS power flow did not converge."
@@ -90,7 +110,7 @@ def add_replay_resources()-> None:
         "bus1=load_bus.1.2.3 "
         "phases=3 "
         "conn=wye "
-        "kv=12.47 "
+        "kv=0.48 "
         "kVA=30 "
         "Pmpp=30 "
         "irradiance=0 "
@@ -104,7 +124,7 @@ def add_replay_resources()-> None:
         "bus1=load_bus.1.2.3 "
         "phases=3 "
         "conn=wye "
-        "kv=12.47 "
+        "kv=0.48 "
         "kVA=5 "
         "kWrated=5 "
         "kWhrated=20 "
@@ -388,6 +408,92 @@ def calculate_feeder_metrics(
         ),
     )
 
+def calculate_transformer_metrics(
+        transformer_name: str = "ServiceTransformer",
+) -> TransformerMetrics:
+    """Calculate power, loading, and losses for a transformer."""
+
+    transformer_names = dss.Transformers.AllNames()
+
+    if (
+        transformer_names is None
+        or transformer_name.lower()
+        not in transformer_names
+    ):
+        raise ValueError(
+            "OpenDSS transformer was not found: "
+            f"{transformer_name}"
+        )
+
+    dss.Transformers.Name(
+        transformer_name
+    )
+
+    dss.Transformers.Wdg(1)
+
+    rated_power_kva = dss.Transformers.kVA()
+
+    if rated_power_kva is None or rated_power_kva <= 0:
+        raise ValueError(
+            "Transformer kVA rating must be positive."
+        )
+
+    element_found = dss.Circuit.SetActiveElement(
+        f"Transformer.{transformer_name}"
+    )
+
+    if not element_found:
+        raise ValueError(
+            "OpenDSS transformer element was not found: "
+            f"{transformer_name}"
+        )
+    number_of_conductors = (
+        dss.CktElement.NumConductors()
+    )
+
+    if number_of_conductors is None:
+        raise RuntimeError(
+            "Active OpenDSS transformer has no conductor count."
+        )
+
+    terminal_value_count = (
+        number_of_conductors * 2
+    )
+
+    power_values = dss.CktElement.Powers()
+
+    input_real_power_kw = sum(
+        power_values[0:terminal_value_count:2]
+    )
+
+    input_reactive_power_kvar = sum(
+        power_values[1:terminal_value_count:2]
+    )
+
+    apparent_power_kva = math.hypot(
+        input_real_power_kw,
+        input_reactive_power_kvar,
+    )
+
+    loss_values = dss.CktElement.Losses()
+
+    return TransformerMetrics(
+        input_real_power_kw=input_real_power_kw,
+        input_reactive_power_kvar=input_reactive_power_kvar,
+        apparent_power_kva=apparent_power_kva,
+        rated_power_kva=rated_power_kva,
+        loading_percent=(
+            apparent_power_kva
+            / rated_power_kva
+            * 100
+        ),
+        real_loss_kw=loss_values[0] / 1000,
+        reactive_absorption_kvar=(
+            loss_values[1] / 1000
+        ),
+    )
+
+
 def classify_line_loading(
         current_a: float,
         normal_amps: float,
@@ -505,7 +611,7 @@ def main ()-> None:
     )
 
     #Bus methods read the currently active bus.
-    dss.Circuit.SetActiveBus("source_bus")
+    dss.Circuit.SetActiveBus("pcc_bus")
 
     #puVmagAngle() alternates magnitude and angle.
     # [0::2] selects only phase-voltage magnitudes.
@@ -538,7 +644,8 @@ def main ()-> None:
     )
 
     # Independently verity the OpenDSS real loss using the per-phase I^R relationship
-    line_resistance_ohm = 0.2
+    # The line uses 0.02 ohm/km positive-sequence resistance over 0.1 km.
+    line_resistance_ohm = 0.02 * 0.1
 
     phase_resistive_losses_w = [
         (current_a ** 2) * line_resistance_ohm

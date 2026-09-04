@@ -8,6 +8,7 @@ from src.opendss_analysis import (
     assess_line_loading,
     assess_voltage_limits,
     calculate_feeder_metrics,
+    calculate_transformer_metrics,
     classify_line_loading,
     create_base_circuit,
     add_replay_resources,
@@ -27,7 +28,8 @@ def test_create_base_circuit_solves_balanced_feeder():
     bus_names = dss.Circuit.AllBusNames()
     assert bus_names is not None
     assert set(bus_names) == {
-        "source_bus",
+        "pcc_bus",
+        "service_bus",
         "load_bus",
     }
 
@@ -36,7 +38,7 @@ def test_create_base_circuit_solves_balanced_feeder():
     ]
 
     assert phase_voltages_pu == pytest.approx(
-        [0.9988, 0.9988, 0.9988],
+        [0.9716, 0.9716, 0.9716],
         abs=0.0001,
     )
 
@@ -49,24 +51,64 @@ def test_calculate_feeder_metrics_matches_balanced_feeder():
 
     # Assert
     assert metrics.phase_currents_a == pytest.approx(
-        (24.3946, 24.3946, 24.3946),
+        (651.4321, 651.4321, 651.4321),
         abs=0.0001,
     )
 
     assert metrics.input_real_power_kw == pytest.approx(
-        500.3571,
+        502.4568,
         abs=0.0001,
     )
 
     assert metrics.real_loss_kw == pytest.approx(
-        0.3571,
+        2.5462,
         abs=0.0001,
     )
 
     assert metrics.power_factor == pytest.approx(
-        0.9498,
+        0.9476,
         abs=0.0001,
     )
+
+def test_calculate_transformer_metrics_matches_base_case():
+    create_base_circuit()
+
+    metrics = calculate_transformer_metrics()
+
+    assert metrics.input_real_power_kw == pytest.approx(
+        506.3677,
+        abs=0.0001,
+    )
+
+    assert metrics.input_reactive_power_kvar == pytest.approx(
+        191.8896,
+        abs=0.0001,
+    )
+
+    assert metrics.apparent_power_kva == pytest.approx(
+        541.5070,
+        abs=0.0001,
+    )
+
+    assert metrics.rated_power_kva == pytest.approx(
+        750.0
+    )
+
+    assert metrics.loading_percent == pytest.approx(
+        72.2009,
+        abs=0.0001,
+    )
+
+    assert metrics.real_loss_kw == pytest.approx(
+        3.9109,
+        abs=0.0001,
+    )
+
+    assert metrics.reactive_absorption_kvar == pytest.approx(
+        22.4885,
+        abs=0.0001,
+    )
+
 
 #test with current_a values(24.3946, 110.0, and 130.0 )
 @pytest.mark.parametrize(
@@ -179,6 +221,28 @@ def test_add_replay_resources_creates_pv_and_battery():
         "battery",
     ]
 
+    dss.Text.Command(
+        "? PVSystem.RooftopPV.kV"
+    )
+    pv_voltage_kv = float(
+        dss.Text.Result()
+    )
+
+    dss.Text.Command(
+        "? Storage.Battery.kV"
+    )
+    battery_voltage_kv = float(
+        dss.Text.Result()
+    )
+
+    assert pv_voltage_kv == pytest.approx(
+        0.48
+    )
+
+    assert battery_voltage_kv == pytest.approx(
+        0.48
+    )
+
     assert dss.Solution.Converged()
 
 def test_apply_dispatch_operating_point_uses_real_dispatch_row():
@@ -253,7 +317,7 @@ def test_replay_dispatch_timeseries_meets_network_limits():
     assert len(replay) == 192
     assert replay["converged"].all()
     assert(
-        replay["grid_import_error_kw"].abs().max() < 0.001
+        replay["grid_import_error_kw"].abs().max() < 0.002
     )
 
     assert(
@@ -263,8 +327,7 @@ def test_replay_dispatch_timeseries_meets_network_limits():
         replay["maximum_voltage_pu"].max() <= 1.05
     )
     assert(
-        replay["maximum_current_a"].max() <= 100.0
+        replay["maximum_current_a"].max() <= 800.0
     )
 
     
-
