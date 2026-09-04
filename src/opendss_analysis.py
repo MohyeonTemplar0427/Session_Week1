@@ -600,6 +600,8 @@ def main ()-> None:
     # current, power, power-factor, and loss metrics
     feeder_metrics = calculate_feeder_metrics()
 
+    transformer_metrics = calculate_transformer_metrics()
+
     dss.Circuit.SetActiveElement("Line.Feeder")
 
     feeder_normal_amps = (
@@ -679,130 +681,81 @@ def main ()-> None:
 
     # Print Call_______________________________________________________
 
-    print(f"\nActive circuit: {circuit_name}")
-    print(f"Buses: {dss.Circuit.AllBusNames()}")
-    print(f"Loads: {dss.Loads.AllNames()}")
+    # print(f"\nActive circuit: {circuit_name}")
+    # print(f"Buses: {dss.Circuit.AllBusNames()}")
+    # print(f"Loads: {dss.Loads.AllNames()}")
+    # print("Load-bus phase voltages (pu): ", load_phase_voltages_pu)
+    # print("Solution converged: ", dss.Solution.Converged())
+    # print("Feeder voltage drop by phase (%): ", voltage_drop_percent)
+    # print("Feeder source-terminal currents (A): ",
+    #       feeder_metrics.phase_currents_a)
+    # print("Feeder input real power (kW): ",
+    #       feeder_metrics.input_real_power_kw)
+    # print("Feeder input reactive power (kvar): ",
+    #       feeder_metrics.input_reactive_power_kvar)
+    # print("Feeder real-power loss (kW): ", feeder_metrics.real_loss_kw)
+    # print("Feeder reactive-power absorption (kvar): ",
+    #       feeder_metrics.reactive_absorption_kvar)
+    # print("Feeder real-power loss (%): ", feeder_real_loss_percent)
+    # print("Calculated I^2R loss (kW): ", calculated_real_loss_kw)
+    # print("OpenDSS versus I^2R difference (W): ", loss_difference_w)
+    # print("Feeder input apparent power (kVA): ",
+    #       feeder_metrics.apparent_power_kva)
+
     print(
-        "Load-bus phase voltages (pu): "
-        f"{[
-            round(value, 4)
-            for value in load_phase_voltages_pu
-        ]}"
+        "\nTransformer input real power (kW): "
+        f"{transformer_metrics.input_real_power_kw:.4f}"
     )
 
     print(
-        "Solution converged: " 
-        f"{dss.Solution.Converged()}"
+        "Transformer input reactive power (kvar): "
+        f"{transformer_metrics.input_reactive_power_kvar:.4f}"
     )
 
     print(
-        "Feeder voltage drop by phase (%): " 
-        f"{[
-            round(value, 4)
-            for value in voltage_drop_percent
-        ]}"
+        "Transformer input apparent power (kVA): "
+        f"{transformer_metrics.apparent_power_kva:.4f}"
     )
 
     print(
-        "\nFeeder source-terminal currents (A): "
-        f"{[
-            round(value,4)
-            for value in feeder_metrics.phase_currents_a
-        ]}"
+        "Transformer rating (kVA): "
+        f"{transformer_metrics.rated_power_kva:.4f}"
     )
 
     print(
-        "Feeder input real power (kW): "
-        f"{feeder_metrics.input_real_power_kw:.4f}"
+        "Transformer loading (%): "
+        f"{transformer_metrics.loading_percent:.4f}"
     )
 
     print(
-        "Feeder input reactive power (kvar): "
-        f"{feeder_metrics.input_reactive_power_kvar:.4f}"
+        "Transformer real-power loss (kW): "
+        f"{transformer_metrics.real_loss_kw:.4f}"
     )
 
     print(
-        "\nFeeder real-power loss (kW): "
-        f"{feeder_metrics.real_loss_kw:.4f}"
+        "Transformer reactive-power absorption (kvar): "
+        f"{transformer_metrics.reactive_absorption_kvar:.4f}"
     )
 
-    print(
-        "Feeder reactive-power absorption (kvar): "
-        f"{feeder_metrics.reactive_absorption_kvar:.4f}"
-    )
-
-    print(
-        "Feeder real-power loss (%): "
-        f"{feeder_real_loss_percent:.4f}"
-    )
-
-    print(
-        "\nCalculated I^2R loss (kW): "
-        f"{calculated_real_loss_kw:.4f}"
-    )
-
-    print(
-        "OpenDSS versus I^2R difference (W): "
-        f"{loss_difference_w:.4f}"
-    )
-
-    print(
-        "\nSource apparent power (kVA): "
-        f"{feeder_metrics.apparent_power_kva:.4f}"
-    )
-
-    print(
-        "Source power factor: "
-        f"{feeder_metrics.power_factor:.4f}"
-    )
-
-    print(
-        "Feeder normal rating (A): "
-        f"{loading_assessment.normal_rating_a}"
-    )
-
-    print(
-        "Feeder emergency rating (A): "
-        f"{loading_assessment.emergency_rating_a}"
-    )
-
-    print(
-        "\nMaximum feeder phase current (A): "
-        f"{loading_assessment.maximum_current_a:.4f}"
-    )
-
-    print(
-        "Feeder normal loading (%): "
-        f"{loading_assessment.normal_loading_percent:.4f}"
-    )
-
-    print(
-        "Feeder emergency loading (%): "
-        f"{loading_assessment.emergency_loading_percent:.4f}"
-    )
-
-    print(
-        "Feeder loading status: "
-        f"{loading_assessment.status.value}"
-    )
-
-    print(
-        "\nMinimum load-bus voltage (pu): "
-        f"{voltage_assessment.minimum_voltage_pu:.4f}"
-    )
-
-    print(
-        "Maximum load-bus voltage (pu): "
-        f"{voltage_assessment.maximum_voltage_pu:.4f}"
-    )
-
-    print(
-        "Load-bus voltage within limits: "
-        f"{voltage_assessment.within_limits}"
-    )
-
-    print(f"\nPV systems: {dss.PVsystems.AllNames()}")
-    print(f"Storage units: {dss.Storages.AllNames()}")
+    # print("Feeder input power factor: ", feeder_metrics.power_factor)
+    # print("Feeder normal rating (A): ", loading_assessment.normal_rating_a)
+    # print("Feeder emergency rating (A): ",
+    #       loading_assessment.emergency_rating_a)
+    # print("Maximum feeder phase current (A): ",
+    #       loading_assessment.maximum_current_a)
+    # print("Feeder normal loading (%): ",
+    #       loading_assessment.normal_loading_percent)
+    # print("Feeder emergency loading (%): ",
+    #       loading_assessment.emergency_loading_percent)
+    # print("Feeder loading status: ", loading_assessment.status.value)
+    # print("Minimum load-bus voltage (pu): ",
+    #       voltage_assessment.minimum_voltage_pu)
+    # print("Maximum load-bus voltage (pu): ",
+    #       voltage_assessment.maximum_voltage_pu)
+    # print("Load-bus voltage within limits: ",
+    #       voltage_assessment.within_limits)
+    # print(f"PV systems: {dss.PVsystems.AllNames()}")
+    # print(f"Storage units: {dss.Storages.AllNames()}")
 
 
 if __name__ == "__main__":
