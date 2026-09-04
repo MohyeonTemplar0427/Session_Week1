@@ -5,6 +5,12 @@ import math
 from dataclasses import dataclass
 from enum import Enum 
 from collections.abc import Sequence
+from opendss_models import(
+    FeederMetrics,
+    LineLoadingAssessment,
+    LoadingStatus,
+    VoltageAssessment,
+)
 
 # CktElement.Powers() returnns alternating real and reactive
 # power for each phase and terminal
@@ -13,49 +19,6 @@ from collections.abc import Sequence
 
 # math.hypot(P,Q) calculates magnitude directly
 # = sqrt(P^2 + Q^2)
-
-
-#frozen = True makes the class immutable
-@dataclass(frozen=True)
-class FeederMetrics:
-    """Electrical measurements for the active feeder line"""
-    phase_currents_a: tuple[float, ...]
-    input_real_power_kw: float
-    input_reactive_power_kvar: float
-    apparent_power_kva: float
-    power_factor: float
-    real_loss_kw: float
-    reactive_absorption_kvar: float
-
-class LoadingStatus(Enum):
-    """Allowed feeder loading classifications. """
-
-    NORMAL = "normal"
-    EMERGENCY = "emergency"
-    ABOVE_EMERGENCY = "above_emergency"
-
-@dataclass(frozen=True)
-class VoltageAssessment:
-    """Result of checking phase voltages against limits."""
-
-    minimum_voltage_pu: float
-    maximum_voltage_pu: float
-    within_limits: bool
-
-@dataclass(frozen=True)
-class LineLoadingAssessment:
-    """Result of checking a line against amp ratings"""
-
-    maximum_current_a: float
-    normal_rating_a: float
-    emergency_rating_a: float
-    normal_loading_percent: float
-    emergency_loading_percent: float
-    status: LoadingStatus
-
-
-
-
 def create_base_circuit() -> tuple[str, list[float]]:
     """Create an empty three-phase microgrid circuit."""
 
@@ -280,6 +243,8 @@ def assess_voltage_limits(
     )
 
 
+
+
 # Main() ----------------------------------------------------------
 def main ()-> None:
     """Run and report the base OpenDSS feeder analysis."""
@@ -491,7 +456,6 @@ def main ()-> None:
         "Load-bus voltage within limits: "
         f"{voltage_assessment.within_limits}"
     )
-
 
 
 
