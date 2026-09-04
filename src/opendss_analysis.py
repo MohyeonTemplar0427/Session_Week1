@@ -175,6 +175,27 @@ def replay_dispatch_timeseries(
     create_base_circuit()
     add_replay_resources()
 
+    line_found = dss.Circuit.SetActiveElement(
+        "Line.Feeder"
+    )
+
+    if not line_found:
+        raise RuntimeError(
+            "OpenDSS feeder line was not found."
+        )
+
+    feeder_normal_amps = (
+        dss.CktElement.NormalAmps()
+    )
+
+    if (
+        feeder_normal_amps is None
+        or feeder_normal_amps <= 0
+    ):
+        raise ValueError(
+            "Feeder normal amp rating must be positive."
+        )
+
     replay_records = []
 
     for _, dispatch_row in dispatch_data.iterrows():
@@ -184,7 +205,12 @@ def replay_dispatch_timeseries(
 
         feeder_metrics = calculate_feeder_metrics()
 
+        transformer_metrics = calculate_transformer_metrics()
+
+        pcc_metrics = calculate_pcc_metrics()
+        
         dss.Circuit.SetActiveBus("load_bus")
+
         voltage_values = dss.Bus.puVmagAngle()
 
         if voltage_values is None:
@@ -193,6 +219,43 @@ def replay_dispatch_timeseries(
             )
 
         phase_voltages_pu = voltage_values[0::2]
+
+        voltage_assessment = assess_voltage_limits(
+            phase_voltages_pu
+        )
+
+        maximum_current_a = max(
+            feeder_metrics.phase_currents_a
+        )
+
+        line_loading_percent = (
+            maximum_current_a / feeder_normal_amps * 100
+        )
+
+        line_overload = (
+            line_loading_percent > 100.0
+        )
+
+        transformer_overload = (
+            transformer_metrics.loading_percent
+            > 100.0
+        )
+
+        voltage_violation = (
+            not voltage_assessment.within_limits
+        )
+
+        converged = bool(
+            dss.Solution.Converged()
+        )
+
+        # check all the safe operation conditions are satisfied
+        feasible = (
+            converged
+            and not voltage_violation
+            and not line_overload
+            and not transformer_overload
+        )
 
         receiving_end_real_power_kw = (
             feeder_metrics.input_real_power_kw
@@ -221,17 +284,42 @@ def replay_dispatch_timeseries(
                 "converged": bool(
                     dss.Solution.Converged()
                 ),
+                "voltage_violation": voltage_violation,
+                "line_overload": line_overload,
+                "transformer_overload": transformer_overload,
+                "feasible": feasible,
                 "minimum_voltage_pu": min(
                     phase_voltages_pu
                 ),
                 "maximum_voltage_pu": max(
                     phase_voltages_pu
                 ),
-                "maximum_current_a": max(
-                    feeder_metrics.phase_currents_a
+                "maximum_current_a": maximum_current_a,
+                "line_normal_rating_a": feeder_normal_amps,
+                "line_loading_percent": line_loading_percent,
+                "transformer_apparent_power_kva": (
+                    transformer_metrics.apparent_power_kva
                 ),
-                "source_real_power_kw": (
+                "transformer_loading_percent": (
+                    transformer_metrics.loading_percent
+                ),
+                "transformer_real_loss_kw": (
+                    transformer_metrics.real_loss_kw
+                ),
+                "feeder_input_real_power_kw": (
                     feeder_metrics.input_real_power_kw
+                ),
+                "pcc_grid_net_import_kw": (
+                    pcc_metrics.grid_net_import_kw
+                ),
+                "pcc_grid_import_kw": (
+                    pcc_metrics.grid_import_kw
+                ),
+                "pcc_grid_export_kw": (
+                    pcc_metrics.grid_export_kw
+                ),
+                "reverse_power_flow": (
+                    pcc_metrics.reverse_power_flow
                 ),
                 "feeder_real_loss_kw": (
                     feeder_metrics.real_loss_kw

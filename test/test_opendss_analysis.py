@@ -459,7 +459,9 @@ def test_replay_dispatch_timeseries_meets_network_limits():
     )
 
     assert len(replay) == 192
+
     assert replay["converged"].all()
+
     assert(
         replay["grid_import_error_kw"].abs().max() < 0.002
     )
@@ -467,11 +469,153 @@ def test_replay_dispatch_timeseries_meets_network_limits():
     assert(
         replay["minimum_voltage_pu"].min() >= 0.95
     )
+
     assert(
         replay["maximum_voltage_pu"].max() <= 1.05
     )
+
     assert(
         replay["maximum_current_a"].max() <= 800.0
     )
+
+    assert (
+        replay["transformer_loading_percent"].max()
+        <= 100.0
+    )  
+
+    assert (
+        replay["transformer_loading_percent"].min()
+        >= 0.0
+    )  
+
+    assert (
+        replay["transformer_real_loss_kw"].min()
+        >= 0.0
+    )  
+
+    expected_transformer_loading = (
+        replay["transformer_apparent_power_kva"]
+        / 750.0
+        * 100
+    )  
+
+    assert (
+        replay["transformer_loading_percent"].tolist()
+        == pytest.approx(
+            expected_transformer_loading.tolist()
+        )
+    )  
+
+    assert (
+        replay["pcc_grid_import_kw"] >= 0.0
+    ).all() 
+
+    assert (
+        replay["pcc_grid_export_kw"] >= 0.0
+    ).all()  
+
+    calculated_pcc_net_import = (
+        replay["pcc_grid_import_kw"]
+        - replay["pcc_grid_export_kw"]
+    )  
+
+    assert (
+        replay["pcc_grid_net_import_kw"].tolist()
+        == pytest.approx(
+            calculated_pcc_net_import.tolist()
+        )
+    )  
+
+    expected_reverse_power_flow = (
+        replay["pcc_grid_net_import_kw"] < 0.0
+    )  
+
+    assert (
+        replay["reverse_power_flow"].tolist()
+        == expected_reverse_power_flow.tolist()
+    )  
+
+    assert "feeder_input_real_power_kw" in replay.columns 
+    assert "source_real_power_kw" not in replay.columns  
+
+    assert not replay[
+        "voltage_violation"
+    ].any()  
+
+    assert not replay[
+        "line_overload"
+    ].any()  
+
+    assert not replay[
+        "transformer_overload"
+    ].any()  
+
+    expected_feasible = (
+        replay["converged"]
+        & ~replay["voltage_violation"]
+        & ~replay["line_overload"]
+        & ~replay["transformer_overload"]
+    )  
+
+    assert (
+        replay["feasible"].tolist()
+        == expected_feasible.tolist()
+    ) 
+
+    assert replay["feasible"].all()  
+
+    expected_line_loading = (
+        replay["maximum_current_a"]
+        / replay["line_normal_rating_a"]
+        * 100
+    )  
+
+    assert (
+        replay["line_loading_percent"].tolist()
+        == pytest.approx(
+            expected_line_loading.tolist()
+        )
+    ) 
+
+    expected_line_overload = (
+        replay["line_loading_percent"] > 100.0
+    ) 
+
+    assert (
+        replay["line_overload"].tolist()
+        == expected_line_overload.tolist()
+    )
+
+
+def test_replay_dispatch_timeseries_flags_infeasible_interval():
+    overloaded_dispatch = pd.DataFrame(
+        {
+            "timestamp": [
+                pd.Timestamp(
+                    "2026-08-25 12:00:00",
+                    tz="America/Los_Angeles",
+                )
+            ],
+            "load_kw": [1000.0],
+            "pv_kw": [0.0],
+            "battery_net_injection_kw": [0.0],
+            "grid_net_import_kw": [1000.0],
+            "battery_soc_kWh": [10.0],
+        }
+    )
+
+    replay = replay_dispatch_timeseries(
+        overloaded_dispatch
+    )
+
+    interval = replay.iloc[0]
+
+    assert bool(interval["converged"])
+    assert bool(interval["line_overload"])
+    assert bool(interval["transformer_overload"])
+    assert not bool(interval["feasible"])
+
+    assert interval["line_loading_percent"] > 100.0  # NEW
+    
 
     
