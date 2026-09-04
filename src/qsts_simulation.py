@@ -120,14 +120,14 @@ def main() -> None:
     )
     print(
         "Converged intervals: "
-        f"{int(replay_results["converged"].sum())}"
+        f"{int(replay_results['converged'].sum())}"
     )
     print(
-        "Minimum voltage(pu): "
+        "Minimum voltage (pu): "
         f"{replay_results['minimum_voltage_pu'].min():.6f}"
     )
     print(
-        "Maximum_voltage (pu): "
+        "Maximum voltage (pu): "
         f"{replay_results['maximum_voltage_pu'].max():.6f}"
     )
     print(

@@ -1,0 +1,23 @@
+{
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "name": "Run QSTS Simulation",
+            "type": "debugpy",
+            "request": "launch",
+            "module": "src.qsts_simulation",
+            "cwd": "${workspaceFolder}",
+            "console": "integratedTerminal",
+            "justMyCode": true
+        },
+        {
+            "name": "Run OpenDSS Analysis",
+            "type": "debugpy",
+            "request": "launch",
+            "module": "src.opendss_analysis",
+            "cwd": "${workspaceFolder}",
+            "console": "integratedTerminal",
+            "justMyCode": true
+        }
+    ]
+}
