@@ -8,13 +8,14 @@ from src.opendss_analysis import (
     assess_line_loading,
     assess_voltage_limits,
     calculate_feeder_metrics,
+    calculate_pcc_metrics,
     calculate_transformer_metrics,
     classify_line_loading,
     create_base_circuit,
     add_replay_resources,
     apply_dispatch_operating_point,
     replay_dispatch_timeseries,
-
+    main as run_opendss_analysis
 )
 
 def test_create_base_circuit_solves_balanced_feeder():
@@ -107,6 +108,113 @@ def test_calculate_transformer_metrics_matches_base_case():
     assert metrics.reactive_absorption_kvar == pytest.approx(
         22.4885,
         abs=0.0001,
+    )
+
+def test_calculate_pcc_metrics_reports_grid_import():
+    create_base_circuit()
+
+    metrics = calculate_pcc_metrics()
+
+    assert metrics.grid_net_import_kw == pytest.approx(
+        506.3677,
+        abs=0.0001,
+    )
+
+    assert metrics.grid_import_kw == pytest.approx(
+        506.3677,
+        abs=0.0001,
+    )
+
+    assert metrics.grid_export_kw == pytest.approx(
+        0.0,
+        abs=0.0001,
+    )
+
+    assert metrics.reactive_power_kvar == pytest.approx(
+        191.8896,
+        abs=0.0001,
+    )
+
+    assert metrics.apparent_power_kva == pytest.approx(
+        541.5070,
+        abs=0.0001,
+    )
+
+    assert metrics.reverse_power_flow is False
+
+def test_calculate_pcc_metrics_detects_reverse_power_flow():
+    create_base_circuit()
+    add_replay_resources()
+
+    export_dispatch_row = pd.Series(
+        {
+            "load_kw": 5.0,
+            "pv_kw": 30.0,
+            "battery_net_injection_kw": 0.0,
+            "battery_soc_kWh": 10.0,
+        }
+    )
+
+    apply_dispatch_operating_point(
+        export_dispatch_row
+    )
+
+    metrics = calculate_pcc_metrics()
+
+    assert metrics.grid_net_import_kw < 0.0
+    assert metrics.grid_import_kw == pytest.approx(
+        0.0
+    )
+    assert metrics.grid_export_kw == pytest.approx(
+        -metrics.grid_net_import_kw
+    )
+    assert metrics.reverse_power_flow is True
+
+# This test chekcs avoiding duplicating every numerical expectation
+def test_main_reports_transformer_loading(
+    capsys,
+):
+    run_opendss_analysis()
+
+    captured_output = capsys.readouterr()
+
+    assert (
+        "Transformer input apparent power (kVA):"
+        in captured_output.out
+    )
+
+    assert (
+        "Transformer rating (kVA): 750.0000"
+        in captured_output.out
+    )
+
+    assert (
+        "Transformer loading (%):"
+        in captured_output.out
+    )
+
+    assert (
+        "Transformer real-power loss (kW):"
+        in captured_output.out
+    )
+    assert (
+        "PCC net grid import (kW):"
+        in captured_output.out
+    )
+
+    assert (
+        "PCC grid import (kW):"
+        in captured_output.out
+    )
+
+    assert (
+        "PCC grid export (kW):"
+        in captured_output.out
+    )
+
+    assert (
+        "PCC reverse power flow:"
+        in captured_output.out
     )
 
 

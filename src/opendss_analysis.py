@@ -13,6 +13,7 @@ from .opendss_models import (
     LoadingStatus,
     TransformerMetrics,
     VoltageAssessment,
+    PCCMetrics,
 )
 
 # CktElement.Powers() returnns alternating real and reactive
@@ -493,6 +494,47 @@ def calculate_transformer_metrics(
         ),
     )
 
+def calculate_pcc_metrics(
+        transformer_name: str = "ServiceTransformer",
+        *,
+        zero_tolerance_kw: float = 1e-6,
+) -> PCCMetrics:
+    """Calculate grid import, export, and reverse flow at the PCC"""
+
+    if zero_tolerance_kw < 0:
+        raise ValueError(
+            "Zero tolerance must not be negative."
+        )
+
+    transformer_metrics = (
+        calculate_transformer_metrics(
+            transformer_name
+        )
+    )
+
+    grid_net_import_kw = (
+        transformer_metrics.input_real_power_kw
+    )
+
+    if abs(grid_net_import_kw) <= zero_tolerance_kw:
+        grid_net_import_kw = 0.0
+
+    grid_import_kw = max(grid_net_import_kw, 0.0)
+
+    grid_export_kw = max(-grid_net_import_kw, 0.0)
+
+    return PCCMetrics(
+        grid_net_import_kw=grid_net_import_kw,
+        grid_import_kw=grid_import_kw,
+        grid_export_kw=grid_export_kw,
+        reactive_power_kvar=(transformer_metrics.input_reactive_power_kvar),
+        apparent_power_kva=(
+            transformer_metrics.apparent_power_kva
+        ),
+        reverse_power_flow=(
+            grid_net_import_kw < 0.0
+        ),
+    )
 
 def classify_line_loading(
         current_a: float,
@@ -601,6 +643,8 @@ def main ()-> None:
     feeder_metrics = calculate_feeder_metrics()
 
     transformer_metrics = calculate_transformer_metrics()
+
+    pcc_metrics = calculate_pcc_metrics()
 
     dss.Circuit.SetActiveElement("Line.Feeder")
 
@@ -736,6 +780,27 @@ def main ()-> None:
         "Transformer reactive-power absorption (kvar): "
         f"{transformer_metrics.reactive_absorption_kvar:.4f}"
     )
+
+    print(
+        "\nPCC net grid import (kW): "
+        f"{pcc_metrics.grid_net_import_kw:.4f}"
+    )
+
+    print(
+        "PCC grid import (kW): "
+        f"{pcc_metrics.grid_import_kw:.4f}"
+    )
+
+    print(
+        "PCC grid export (kW): "
+        f"{pcc_metrics.grid_export_kw:.4f}"
+    )
+
+    print(
+        "PCC reverse power flow: "
+        f"{pcc_metrics.reverse_power_flow}"
+    )
+
 
     # print("Feeder input power factor: ", feeder_metrics.power_factor)
     # print("Feeder normal rating (A): ", loading_assessment.normal_rating_a)

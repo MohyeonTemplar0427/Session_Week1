@@ -37,6 +37,19 @@ class TransformerMetrics:
     real_loss_kw: float
     reactive_absorption_kvar: float
 
+
+@dataclass(frozen=True)
+class PCCMetrics:
+    """Power exchange measured at the point of common coupling."""
+
+    grid_net_import_kw: float
+    grid_import_kw: float
+    grid_export_kw: float
+    reactive_power_kvar: float
+    apparent_power_kva: float
+    reverse_power_flow: bool
+
+
 @dataclass(frozen=True)
 class LineLoadingAssessment:
     """Feeder loading compared with its current ratings."""
